@@ -19,7 +19,7 @@ except ImportError:
 
 st.set_page_config(page_title="نظام كشف الغش الذكي - YOLOv11", layout="wide")
 
-st.title("🎓 نظام كشف الغش الذكي (YOLOv11 + Head Pose + جرس إنذار)")
+st.title("🎓 نظام كشف الغش الذكي (YOLOv11 + Head Pose + تنبيهات مفصلة)")
 
 # الشريط الجانبي لاختيار مصادر الفيديو
 st.sidebar.header("إدارة مصادر الفيديو")
@@ -54,8 +54,8 @@ class CheatingDetectorSystem:
                 self.face_mesh = None
 
     def estimate_head_pose(self, frame):
-        """تتبع التفات الرأس وحركة الوجه بشكل آمن"""
-        pose_status = "طبيعي"
+        """تتبع التفات الرأس وحركة الوجه بدقة"""
+        pose_status = "الوجه في الوضع الطبيعي"
         is_alert = False
 
         if self.face_mesh is not None:
@@ -69,20 +69,20 @@ class CheatingDetectorSystem:
                         right_eye = face_landmarks.landmark[263]
                         
                         if nose.x < left_eye.x - 0.02:
-                            pose_status = "تحذير: الطالب ملتفت يميناً!"
+                            pose_status = "⚠️ التفات يميناً (محاولة التفتت)"
                             is_alert = True
                         elif nose.x > right_eye.x + 0.02:
-                            pose_status = "تحذير: الطالب ملتفت يساراً!"
+                            pose_status = "⚠️ التفات يساراً (محاولة التفتت)"
                             is_alert = True
                 else:
-                    pose_status = "تحذير: الوجه مختفي عن الكاميرا!"
+                    pose_status = "⚠️ تحذير: الوجه مختفي عن الكاميرا!"
                     is_alert = True
             except Exception:
                 pass
         return pose_status, is_alert
 
     def process_frame_with_yolo(self, frame):
-        """كشف الأجسام المحظورة باستخدام YOLO وتوليد الإنذارات الدقيقة"""
+        """كشف الأجسام المحظورة والأشخاص باستخدام YOLO"""
         alerts = []
         person_count = 0
         phone_count = 0
@@ -125,14 +125,16 @@ class CheatingDetectorSystem:
             except Exception:
                 pass
 
+        # فحص حركة الرأس
         head_msg, head_alert = self.estimate_head_pose(frame)
         if head_alert:
             alerts.append(f"⚠️ {head_msg}")
 
+        # تنبيه تعدد الأشخاص فقط إذا تجاوزوا شخصاً واحداً
         if person_count > 1:
             alerts.append(f"🚨 [تنبيه خطر]: يوجد {person_count} أشخاص في نطاق الاختبار!")
 
-        return frame, alerts, person_count, phone_count, book_count
+        return frame, alerts, person_count, phone_count, book_count, head_msg
 
 detector = CheatingDetectorSystem()
 
@@ -155,11 +157,12 @@ if source_option == "ملف فيديو من بياناتي (Data Set)":
         
         cap = cv2.VideoCapture(tfile.name)
         
-        if st.button("بدء تحليل الفيديو وعرض النتائج"):
-            st.write("جاري معالجة الفيديو وإظهار النتائج...")
+        if st.button("بدء تحليل الفيديو وعرض النتائج المفصلة"):
+            st.write("جاري معالجة الفيديو واستخراج تقارير الغش...")
             stframe = st.empty()
             
             metrics_placeholder = st.empty()
+            head_status_placeholder = st.empty()
             alert_placeholder = st.empty()
             
             while cap.isOpened():
@@ -167,22 +170,28 @@ if source_option == "ملف فيديو من بياناتي (Data Set)":
                 if not ret:
                     break
                 
-                processed_frame, alerts, p_count, phone_count, book_count = detector.process_frame_with_yolo(frame)
+                processed_frame, alerts, p_count, phone_count, book_count, head_msg = detector.process_frame_with_yolo(frame)
                 stframe.image(cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB), channels="RGB", use_container_width=True)
                 
+                # عرض مؤشرات الأعداد
                 with metrics_placeholder.container():
                     col1, col2, col3 = st.columns(3)
                     col1.metric("عدد الأشخاص", p_count)
                     col2.metric("الهواتف المكتشفة", phone_count)
                     col3.metric("الكتب والمواد", book_count)
                 
+                # عرض حالة حركة الوجه والرأس
+                with head_status_placeholder.container():
+                    st.info(f"👤 حالة حركة الوجه والالتفات: **{head_msg}**")
+
+                # عرض الإنذارات وتشغيل الصوت
                 with alert_placeholder.container():
                     if alerts:
                         play_alarm_sound()
                         for alert in alerts:
                             st.error(alert)
                     else:
-                        st.success("الوضع سليم في هذا الإطار.")
+                        st.success("الوضع سليم في هذا الإطار ولم يتم رصد أي غش.")
             cap.release()
 
 # --- 2. خيار رابط فيديو من الإنترنت (URL) ---
@@ -191,10 +200,11 @@ elif source_option == "رابط فيديو من الإنترنت (URL)":
     video_url = st.text_input("أدخل رابط الفيديو المباشر (رابط ملف فيديو مباشر MP4):")
 
     if video_url:
-        if st.button("بدء تحليل فيديو الإنترنت وعرض النتائج"):
+        if st.button("بدء تحليل فيديو الإنترنت وعرض النتائج المفصلة"):
             cap = cv2.VideoCapture(video_url)
             stframe = st.empty()
             metrics_placeholder = st.empty()
+            head_status_placeholder = st.empty()
             alert_placeholder = st.empty()
             
             while cap.isOpened():
@@ -203,7 +213,7 @@ elif source_option == "رابط فيديو من الإنترنت (URL)":
                     st.warning("انتهى الفيديو أو تعذر الوصول للرابط.")
                     break
                 
-                processed_frame, alerts, p_count, phone_count, book_count = detector.process_frame_with_yolo(frame)
+                processed_frame, alerts, p_count, phone_count, book_count, head_msg = detector.process_frame_with_yolo(frame)
                 stframe.image(cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB), channels="RGB", use_container_width=True)
                 
                 with metrics_placeholder.container():
@@ -212,6 +222,9 @@ elif source_option == "رابط فيديو من الإنترنت (URL)":
                     col2.metric("الهواتف المكتشفة", phone_count)
                     col3.metric("الكتب والمواد", book_count)
                 
+                with head_status_placeholder.container():
+                    st.info(f"👤 حالة حركة الوجه والالتفات: **{head_msg}**")
+
                 with alert_placeholder.container():
                     if alerts:
                         play_alarm_sound()
@@ -227,4 +240,23 @@ elif source_option == "كاميرا الجهاز (Camera)":
     img_file_buffer = st.camera_input("التقط صورة للتحقق الفوري")
 
     if img_file_buffer is not None:
-        bytes_data = img_file_buffer
+        bytes_data = img_file_buffer.getvalue()
+        cv2_img = cv2.imdecode(np.frombuffer(bytes_data, np.uint8), cv2.IMREAD_COLOR)
+
+        processed_frame, alerts, p_count, phone_count, book_count, head_msg = detector.process_frame_with_yolo(cv2_img)
+
+        st.image(cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB), use_container_width=True)
+
+        col1, col2, col3 = st.columns(3)
+        col1.metric("عدد الأشخاص", p_count)
+        col2.metric("الهواتف المكتشفة", phone_count)
+        col3.metric("الكتب والمواد", book_count)
+
+        st.info(f"👤 حالة حركة الوجه والالتفات: **{head_msg}**")
+
+        if alerts:
+            play_alarm_sound()
+            for alert in alerts:
+                st.error(alert)
+        else:
+            st.success("الوضع سليم: لم يتم رصد أي محاولات غش.")
