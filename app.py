@@ -32,11 +32,9 @@ source_option = st.sidebar.selectbox(
 def load_yolo_model():
     if YOLO_AVAILABLE:
         try:
-            # تحميل أحدث نموذج YOLOv11 (سيتم تحميله تلقائياً عند التشغيل)
             return YOLO('yolo11n.pt')
         except Exception:
             try:
-                # كحل بديل في حال لم يتوفر نموذج 11 النسخة الناانو
                 return YOLO('yolov8n.pt')
             except Exception:
                 return None
@@ -84,7 +82,7 @@ class CheatingDetectorSystem:
         return pose_status, is_alert
 
     def process_frame_with_yolo(self, frame):
-        """كشف الأجسام المحظورة باستخدام YOLOv11 وتوليد الإنذارات الدقيقة"""
+        """كشف الأجسام المحظورة باستخدام YOLO وتوليد الإنذارات الدقيقة"""
         alerts = []
         person_count = 0
         phone_count = 0
@@ -99,12 +97,10 @@ class CheatingDetectorSystem:
                         conf = float(box.conf[0])
                         class_name = yolo_model.names[cls_id]
                         
-                        # رفع عتبة الثقة إلى 0.60 لمنع الإنذارات الكاذبة وعد الأجسام الوهمية
                         if conf > 0.60:
                             coords = box.xyxy[0].cpu().numpy().astype(int)
                             x1, y1, x2, y2 = coords
 
-                            # كشف الأشخاص بشرط الحجم لتجنب العد الخاطئ للأطراف والأوراق
                             if class_name == 'person':
                                 area = (x2 - x1) * (y2 - y1)
                                 if area > 4000:
@@ -113,7 +109,6 @@ class CheatingDetectorSystem:
                                     cv2.putText(frame, f"Person {conf:.2f}", (x1, y1 - 10), 
                                                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
                             
-                            # كشف الهواتف المحمولة
                             elif class_name in ['cell phone', 'phone']:
                                 phone_count += 1
                                 cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 3)
@@ -121,7 +116,6 @@ class CheatingDetectorSystem:
                                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
                                 alerts.append("🚨 [تنبيه خطر]: تم اكتشاف هاتف محمول محظور!")
 
-                            # كشف الكتب أو اللابتوب
                             elif class_name in ['book', 'laptop']:
                                 book_count += 1
                                 cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 165, 255), 3)
@@ -142,7 +136,6 @@ class CheatingDetectorSystem:
 
 detector = CheatingDetectorSystem()
 
-# دالة لتشغيل جرس الإنذار الصوتي عبر متصفح الويب (HTML Audio Bell)
 def play_alarm_sound():
     alarm_html = """
         <audio autoplay>
@@ -161,11 +154,14 @@ if source_option == "ملف فيديو من بياناتي (Data Set)":
         tfile.write(uploaded_file.read())
         
         cap = cv2.VideoCapture(tfile.name)
-        st.video(uploaded_file)
         
-        if st.button("بدء تحليل الفيديو من البيانات"):
-            st.write("جاري معالجة الفيديو عبر YOLOv11...")
+        if st.button("بدء تحليل الفيديو وعرض النتائج"):
+            st.write("جاري معالجة الفيديو وإظهار النتائج...")
             stframe = st.empty()
+            
+            # حاويات عرض المؤشرات والإنذارات أسفل الفيديو مباشرة
+            metrics_placeholder = st.empty()
+            alert_placeholder = st.empty()
             
             while cap.isOpened():
                 ret, frame = cap.read()
@@ -175,8 +171,21 @@ if source_option == "ملف فيديو من بياناتي (Data Set)":
                 processed_frame, alerts, p_count, phone_count, book_count = detector.process_frame_with_yolo(frame)
                 stframe.image(cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB), channels="RGB", use_container_width=True)
                 
-                if alerts:
-                    play_alarm_sound()
+                # تحديث الـ Metrics أسفل الفيديو لكل إطار
+                with metrics_placeholder.container():
+                    col1, col2, col3 = st.columns(3)
+                    col1.metric("عدد الأشخاص", p_count)
+                    col2.metric("الهواتف المكتشفة", phone_count)
+                    col3.metric("الكتب والمواد", book_count)
+                
+                # عرض الإنذارات وتشغيل الصوت في حال وجود خطر
+                with alert_placeholder.container():
+                    if alerts:
+                        play_alarm_sound()
+                        for alert in alerts:
+                            st.error(alert)
+                    else:
+                        st.success("الوضع سليم في هذا الإطار.")
             cap.release()
 
 # --- 2. خيار رابط فيديو من الإنترنت (URL) ---
@@ -185,10 +194,11 @@ elif source_option == "رابط فيديو من الإنترنت (URL)":
     video_url = st.text_input("أدخل رابط الفيديو المباشر (رابط ملف فيديو مباشر MP4):")
 
     if video_url:
-        st.video(video_url)
-        if st.button("بدء تحليل فيديو الإنترنت"):
+        if st.button("بدء تحليل فيديو الإنترنت وعرض النتائج"):
             cap = cv2.VideoCapture(video_url)
             stframe = st.empty()
+            metrics_placeholder = st.empty()
+            alert_placeholder = st.empty()
             
             while cap.isOpened():
                 ret, frame = cap.read()
@@ -199,8 +209,19 @@ elif source_option == "رابط فيديو من الإنترنت (URL)":
                 processed_frame, alerts, p_count, phone_count, book_count = detector.process_frame_with_yolo(frame)
                 stframe.image(cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB), channels="RGB", use_container_width=True)
                 
-                if alerts:
-                    play_alarm_sound()
+                with metrics_placeholder.container():
+                    col1, col2, col3 = st.columns(3)
+                    col1.metric("عدد الأشخاص", p_count)
+                    col2.metric("الهواتف المكتشفة", phone_count)
+                    col3.metric("الكتب والمواد", book_count)
+                
+                with alert_placeholder.container():
+                    if alerts:
+                        play_alarm_sound()
+                        for alert in alerts:
+                            st.error(alert)
+                    else:
+                        st.success("الوضع سليم.")
             cap.release()
 
 # --- 3. خيار كاميرا الجهاز (Camera) ---
@@ -214,16 +235,4 @@ elif source_option == "كاميرا الجهاز (Camera)":
 
         processed_frame, alerts, p_count, phone_count, book_count = detector.process_frame_with_yolo(cv2_img)
 
-        st.image(cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB), use_container_width=True)
-
-        col1, col2, col3 = st.columns(3)
-        col1.metric("عدد الأشخاص", p_count)
-        col2.metric("الهواتف المكتشفة", phone_count)
-        col3.metric("الكتب والمواد", book_count)
-
-        if alerts:
-            play_alarm_sound()  # تشغيل جرس الإنذار الصوتي الفوري
-            for alert in alerts:
-                st.error(alert)
-        else:
-            st.success("الوضع سليم: لم يتم رصد أي محاولات غش.")
+        st.image(cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB), use_
