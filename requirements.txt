@@ -1,0 +1,14 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch
+torchvision
+ultralytics>=8.3.0
+opencv-python-headless
+numpy
+pandas
+scipy
+pillow
+requests
+streamlit>=1.40
+imageio-ffmpeg
+# Optional cloud sync (Firestore + Storage):
+# firebase-admin

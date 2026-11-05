@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.venv/
+.idea/
+.vscode/
+# runtime outputs
+alerts/
+outputs/
+runs/
+*.db
+# secrets - NEVER commit these
+.env
+*serviceAccount*.json
+.streamlit/secrets.toml
