@@ -1,383 +1,84 @@
-import sys
+from datetime import datetime
 from pathlib import Path
-
-# ==========================================
-# 0. FIX PYTHON PATH (MUST BE AT THE VERY TOP)
-# ==========================================
-ROOT = Path(__file__).resolve().parent
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-import os
-import tempfile
-import threading
-
 import cv2
-import pandas as pd
 import streamlit as st
+from src.detector import CheatingDetector
 
-# استيراد الملفات مباشرة بدون استخدام src.
-from database import AlertDatabase
-from detector import CheatingMonitor, DetectorConfig, format_notification
+st.set_page_config(page_title="نظام كشف الغش الذكي", layout="wide")
 
+st.title("🚨 نظام تتبع ومراقبة حالات الغش في الامتحانات (Exam Cheating Detection)")
+st.markdown("---")
 
-# ==========================================
-# 1. APP CONFIGURATION
-# ==========================================
+# إعداد النموذج
+@st.cache_resource
+def load_detector():
+    return CheatingDetector(model_path="yolov8s.pt", conf_threshold=0.5)
 
-st.set_page_config(
-    page_title="Student Cheating Detection", page_icon="🎓", layout="wide"
+detector = load_detector()
+
+# الشريط الجانبي للتحكم وخيارات الفيديوهات
+st.sidebar.header("إعدادات المصدر والتحكم")
+source_option = st.sidebar.selectbox(
+    "اختر مصدر الفيديو:",
+    ("رفع فيديو من الجهاز", "الفيديوهات المتاحة في النظام (Dataset)", "رابط فيديو مباشر")
 )
 
-MODEL_PATH = ROOT / "models" / "best.pt"
-SCREENSHOT_DIR = ROOT / "alerts" / "screenshots"
-DB_PATH = ROOT / "alerts" / "alerts.db"
+video_path = None
+if source_option == "رفع فيديو من الجهاز":
+    uploaded_file = st.sidebar.file_uploader("اختر ملف فيديو", type=["mp4", "avi", "mov"])
+    if uploaded_file is not None:
+        temp_file = Path("/tmp/uploaded_video.mp4")
+        temp_file.write_bytes(uploaded_file.read())
+        video_path = str(temp_file)
 
-SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
-DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+elif source_option == "الفيديوهات المتاحة في النظام (Dataset)":
+    # البحث التلقائي عن الفيديوهات في مسارات كاجل أو مجلد samples
+    sample_videos = list(Path("/kaggle/input").rglob("*.mp4")) + list(Path("samples").glob("*.mp4"))
+    if sample_videos:
+        selected_sample = st.sidebar.selectbox("اختر فيديو من الداتا:", [str(p) for p in sample_videos])
+        video_path = selected_sample
+    else:
+        st.sidebar.warning("لم يتم العثور على فيديوهات تلقائية في /kaggle/input. يرجى رفع فيديو.")
 
+else:
+    url_input = st.sidebar.text_input("أدخل رابط الفيديو المباشر:")
+    if url_input:
+        video_path = url_input
 
-# ==========================================
-# 2. INITIALIZE SESSION STATE
-# ==========================================
+# العرض الرئيسي والتشغيل
+if video_path and st.sidebar.button("بدء المعالجة والتحليل"):
+    cap = cv2.VideoCapture(video_path)
+    st.sidebar.success("جاري تشغيل ومعالجة الفيديو...")
+    
+    st_frame = st.empty()
+    alert_box = st.empty()
+    metrics_col1, metrics_col2 = st.columns(2)
+    
+    frame_count_metric = metrics_col1.metric("عداد إطارات الهاتف المتتالية", 0)
+    head_count_metric = metrics_col2.metric("عداد إطارات التفات الرأس", 0)
 
-if "alert_events" not in st.session_state:
-    st.session_state.alert_events = []
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            st.warning("انتهى الفيديو أو حدث خطأ في القراءة.")
+            break
 
-if "db" not in st.session_state:
-    st.session_state.db = AlertDatabase(str(DB_PATH))
+        # معالجة الإطار عبر نظام الكشف
+        processed_frame, alert, msg, p_count, h_count = detector.process_frame(frame)
+        
+        # تحويل الألوان للعرض في Streamlit
+        processed_frame = cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB)
+        st_frame.image(processed_frame, channels="RGB", use_column_width=True)
+        
+        # تحديث العدادات على الواجهة
+        frame_count_metric.metric("عداد إطارات الهاتف المتتالية", p_count)
+        head_count_metric.metric("عداد إطارات التفات الرأس", h_count)
 
-if "monitor" not in st.session_state:
-    cfg = DetectorConfig(
-        weights=str(MODEL_PATH),
-        screenshot_dir=str(SCREENSHOT_DIR),
-        db_path=str(DB_PATH),
-    )
-
-    st.session_state.monitor = CheatingMonitor(
-        cfg,
-        db=st.session_state.db,
-        on_alert=lambda event: st.session_state.alert_events.append(event),
-    )
-
-
-# ==========================================
-# 3. SIDEBAR
-# ==========================================
-
-st.sidebar.title("🎓 Navigation")
-
-page = st.sidebar.radio(
-    "Select Page", ["Home", "Cheating Detection", "Alert History", "About"]
-)
-
-
-# ==========================================
-# 4. HOME PAGE
-# ==========================================
-
-if page == "Home":
-
-    st.title("🎓 Student Cheating Detection System")
-
-    st.subheader("AI-Powered Exam Monitoring and Cheating Detection")
-
-    st.write(
-        """
-    Welcome to the Student Cheating Detection System.
-
-    This application uses Computer Vision and Deep Learning
-    to analyze examination videos and identify suspicious
-    student behavior.
-    """
-    )
-
-    st.divider()
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.metric("Detection System", "AI / Computer Vision")
-
-    with col2:
-        st.metric("Monitoring", "Video Analysis")
-
-    with col3:
-        st.metric("Alerts", "Real Time During Processing")
-
-    st.divider()
-
-    st.info(
-        "Upload an examination video from the Cheating Detection page "
-        "to start analyzing student behavior."
-    )
-
-
-# ==========================================
-# 5. CHEATING DETECTION PAGE
-# ==========================================
-
-elif page == "Cheating Detection":
-
-    st.title("📹 Cheating Detection")
-
-    st.write("Upload an examination video to analyze suspicious behavior.")
-
-    st.divider()
-
-    # Check model (تحذير مرن بدون إيقاف التطبيق قسرياً في حال غياب النموذج)
-    if not MODEL_PATH.exists():
-        st.warning(
-            f"⚠️ تنبيه: ملف النموذج غير موجود في المسار: `{MODEL_PATH}`. تأكد من رفع مجلد `models` وبداخله `best.pt` إلى المستودع."
-        )
-
-    # Upload video
-    uploaded_video = st.file_uploader(
-        "Upload Examination Video", type=["mp4", "avi", "mov", "mkv"]
-    )
-
-    # Confidence threshold
-    confidence = st.slider(
-        "Detection Confidence",
-        min_value=0.10,
-        max_value=0.90,
-        value=0.50,
-        step=0.05,
-    )
-
-    st.divider()
-
-    # Video display
-    video_placeholder = st.empty()
-
-    # Progress bar
-    progress_bar = st.progress(0)
-
-    status_text = st.empty()
-
-    # Start detection
-    if st.button(
-        "🚀 Start Detection",
-        type="primary",
-        disabled=uploaded_video is None,
-    ):
-
-        if uploaded_video is None:
-
-            st.warning("Please upload a video first.")
-
+        if alert:
+            alert_box.error(f"⚠️ {msg} (التوقيت: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')})")
         else:
-
-            # Reset alerts for this run
-            st.session_state.alert_events = []
-
-            temp_path = None
-
-            try:
-
-                # Save uploaded video temporarily
-                suffix = Path(uploaded_video.name).suffix
-
-                with tempfile.NamedTemporaryFile(
-                    delete=False, suffix=suffix
-                ) as temp_file:
-
-                    temp_file.write(uploaded_video.getvalue())
-
-                    temp_path = temp_file.name
-
-                # Configure model
-                monitor = st.session_state.monitor
-
-                monitor.cfg.conf = confidence
-
-                stop_event = threading.Event()
-
-                status_text.info("Loading video and AI model...")
-
-                # Process video
-                with st.spinner("Analyzing examination video..."):
-
-                    for item in monitor.stream_video(
-                        temp_path, stop_event=stop_event
-                    ):
-
-                        frame = item["frame"]
-
-                        frame_index = item["frame_index"]
-
-                        total_frames = item["total_frames"] or 1
-
-                        # Convert BGR to RGB
-                        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
-                        # Display processed frame
-                        video_placeholder.image(
-                            frame_rgb,
-                            caption="Live Video Analysis",
-                            use_container_width=True,
-                        )
-
-                        # Update progress
-                        progress = min(frame_index / total_frames, 1.0)
-
-                        progress_bar.progress(progress)
-
-                        status_text.info(
-                            f"Processing frame: {frame_index} / {total_frames}"
-                        )
-
-                progress_bar.progress(1.0)
-
-                status_text.success("Video analysis completed successfully!")
-
-                st.success("Detection process finished.")
-
-                # Display detected alerts
-                if st.session_state.alert_events:
-
-                    st.subheader("🚨 Detected Suspicious Activities")
-
-                    for event in st.session_state.alert_events:
-
-                        try:
-                            message = format_notification(event)
-                        except Exception:
-                            message = str(event)
-
-                        st.warning(message)
-
-                else:
-
-                    st.success(
-                        "No suspicious activities were reported by the detector."
-                    )
-
-            except Exception as e:
-
-                st.error("An error occurred during video processing.")
-
-                st.exception(e)
-
-            finally:
-
-                # Remove temporary video
-                if temp_path and os.path.exists(temp_path):
-
-                    os.remove(temp_path)
-
-
-# ==========================================
-# 6. ALERT HISTORY PAGE
-# ==========================================
-
-elif page == "Alert History":
-
-    st.title("🚨 Alert History")
-
-    st.write("View all previously recorded suspicious activities.")
-
-    if st.button("🔄 Refresh History"):
-
-        st.rerun()
-
-    try:
-
-        records = st.session_state.db.fetch_all(limit=500)
-
-        if records:
-
-            history = []
-
-            for r in records:
-
-                history.append(
-                    {
-                        "ID": r["id"],
-                        "Date / Time": str(r["detected_at"]).replace(
-                            "T", " "
-                        ),
-                        "Behavior": r["behavior"],
-                        "Confidence": round(float(r["confidence"]), 2),
-                        "Screenshot": r["screenshot_path"],
-                    }
-                )
-
-            df = pd.DataFrame(history)
-
-            st.metric("Total Recorded Alerts", len(df))
-
-            st.dataframe(df, use_container_width=True, hide_index=True)
-
-            st.divider()
-
-            # Screenshot viewer
-            st.subheader("🖼️ View Alert Screenshot")
-
-            screenshot_options = [
-                r["Screenshot"] for r in history if r["Screenshot"]
-            ]
-
-            if screenshot_options:
-
-                selected_screenshot = st.selectbox(
-                    "Select Screenshot", screenshot_options
-                )
-
-                if os.path.exists(selected_screenshot):
-
-                    st.image(
-                        selected_screenshot,
-                        caption="Detected Suspicious Activity",
-                        use_container_width=True,
-                    )
-
-                else:
-
-                    st.warning("Screenshot file not found.")
-
-        else:
-
-            st.info("No alerts have been recorded yet.")
-
-    except Exception as e:
-
-        st.error(f"Could not load alert history: {e}")
-
-
-# ==========================================
-# 7. ABOUT PAGE
-# ==========================================
-
-elif page == "About":
-
-    st.title("ℹ️ About the Project")
-
-    st.write(
-        """
-    # Student Cheating Detection System
-
-    This project uses Artificial Intelligence and Computer Vision
-    to monitor examination videos and detect suspicious behavior.
-
-    ### Main Features
-
-    - Upload examination videos.
-    - Analyze video frames.
-    - Detect suspicious student behavior using the trained model.
-    - Generate alerts.
-    - Save detection screenshots.
-    - Store alert history in a database.
-
-    ### Technologies
-
-    - Python
-    - Streamlit
-    - OpenCV
-    - Machine Learning / Deep Learning
-    - Computer Vision
-    - SQLite
-    """
-    )
-
-    st.success("Student Cheating Detection System")
+            alert_box.success("الحالة طبيعية - لم يتم رصد أي سلوك مريب.")
+
+    cap.release()
+else:
+    st.info("الرجاء اختيار مصدر فيديو من الشريط الجانبي والضغط على 'بدء المعالجة والتحليل'.")
