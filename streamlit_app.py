@@ -1,7 +1,9 @@
 import sys
 from pathlib import Path
 
-# ضبط المسار العام
+# ==========================================
+# 0. FIX PYTHON PATH (MUST BE AT THE VERY TOP)
+# ==========================================
 ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -123,12 +125,11 @@ elif page == "Cheating Detection":
 
     st.divider()
 
-    # Check model
+    # Check model (تحذير مرن بدون إيقاف التطبيق قسرياً في حال غياب النموذج)
     if not MODEL_PATH.exists():
-
-        st.error(f"Model weights not found: {MODEL_PATH}")
-
-        st.stop()
+        st.warning(
+            f"⚠️ تنبيه: ملف النموذج غير موجود في المسار: `{MODEL_PATH}`. تأكد من رفع مجلد `models` وبداخله `best.pt` إلى المستودع."
+        )
 
     # Upload video
     uploaded_video = st.file_uploader(
