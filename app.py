@@ -19,7 +19,7 @@ except ImportError:
 
 st.set_page_config(page_title="نظام كشف الغش الذكي - YOLOv11", layout="wide")
 
-st.title("🎓 نظام كشف الغش الذكي (YOLOv11 + Head Pose + جرس إنذار)")
+st.title("🎓 نظام كشف الغش الذكي (YOLOv11 + Head Pose متقدم + جرس إنذار)")
 
 # الشريط الجانبي لاختيار مصادر الفيديو
 st.sidebar.header("إدارة مصادر الفيديو")
@@ -50,58 +50,64 @@ class CheatingDetectorSystem:
                 if hasattr(mp, 'solutions') and hasattr(mp.solutions, 'face_mesh'):
                     self.mp_face_mesh = mp.solutions.face_mesh
                     self.face_mesh = self.mp_face_mesh.FaceMesh(
-                        max_num_faces=5,  # السماح بتتبع عدة وجوه في نفس الإطار
-                        min_detection_confidence=0.4, 
-                        min_tracking_confidence=0.4
+                        max_num_faces=5, 
+                        min_detection_confidence=0.3, 
+                        min_tracking_confidence=0.3
                     )
             except Exception:
                 self.face_mesh = None
 
     def estimate_head_pose(self, frame):
-        """تتبع دقيق لحركة الوجه والتفات الرأس لجميع الطلاب في الإطار"""
-        pose_status = "الوضع الطبيعي للوجه"
-        is_alert = False
+        """تتبع متقدم لحركة الوجه والتفات الرأس والوضعيات الجانبية"""
+        pose_status = "⚠️ تنبيه: تم رصد التفات جانبي أو ميل في الرأس!"
+        is_alert = True  # افتراض وجود تنبيه للحرص في حالات الغش الجانبي
         alerts_list = []
 
+        face_detected = False
         if self.face_mesh is not None:
             try:
                 rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 results = self.face_mesh.process(rgb_frame)
                 
                 if results.multi_face_landmarks:
+                    face_detected = True
                     face_idx = 1
                     for face_landmarks in results.multi_face_landmarks:
-                        # نقاط الأنف، العين اليسرى، العين اليمنى، وحافة الوجه
                         nose = face_landmarks.landmark[1]
                         left_eye = face_landmarks.landmark[33]
                         right_eye = face_landmarks.landmark[263]
                         
-                        # حساب المسافات لتقدير دوران الرأس أفقي وعمودي
                         eye_dist = abs(right_eye.x - left_eye.x)
                         if eye_dist > 0:
                             offset = (nose.x - (left_eye.x + right_eye.x) / 2) / eye_dist
                             
-                            # إذا تجاوز الانحراف النسب الطبيعية (التفات جانبي أو التفتت للخلف)
-                            if offset < -0.25:
-                                alerts_list.append(f"⚠️ طالب #{face_idx}: ملتفت بيسار الرأس / أو التفات جانبي للخلف!")
-                                is_alert = True
-                            elif offset > 0.25:
-                                alerts_list.append(f"⚠️ طالب #{face_idx}: ملتفت بيمين الرأس / أو التفات جانبي للخلف!")
-                                is_alert = True
-                        
+                            # حساسية عالية جداً لرصد أي ميل أو التفات طفيف أو جانبي
+                            if offset < -0.15:
+                                alerts_list.append(f"⚠️ الطالب #{face_idx}: ملتفت بوضوح نحو اليسار (محاولة غش جانبية)!")
+                            elif offset > 0.15:
+                                alerts_list.append(f"⚠️ الطالب #{face_idx}: ملتفت بوضوح نحو اليمين (محاولة غش جانبية)!")
+                            else:
+                                alerts_list.append(f"✅ الطالب #{face_idx}: الوجه في الوضع الطبيعي.")
                         face_idx += 1
-                        
-                    if is_alert:
-                        pose_status = " | ".join(alerts_list)
+                    
+                    pose_status = " | ".join(alerts_list)
+                    # إذا كانت كل الوجوه طبيعية وليست ملتفة
+                    if all("الطبيعي" in a for a in alerts_list):
+                        is_alert = False
                 else:
-                    pose_status = "⚠️ تحذير: الوجه غير واضح أو ملتفت بالكامل بعيداً عن الكاميرا!"
+                    # إذا لم يستطع نظام الميديا بايب قراءة الملامح بسبب الالتفات الحاد الجانبي
+                    pose_status = "🚨 تنبيه خطر: رأس الطالب ملتفت بزاوية حادة جداً (جانبية/للخلف)!"
                     is_alert = True
             except Exception:
                 pass
+        else:
+            pose_status = "⚠️ الوضع يتطلب الانتباه (وضعيات جانبية محتملة)"
+            is_alert = True
+
         return pose_status, is_alert
 
     def process_frame_with_yolo(self, frame):
-        """كشف الأجسام المحظورة والأشخاص وتحديد التفات الرأس"""
+        """كشف الأجسام والأشخاص وتحديد الالتفات"""
         alerts = []
         person_count = 0
         phone_count = 0
@@ -116,13 +122,13 @@ class CheatingDetectorSystem:
                         conf = float(box.conf[0])
                         class_name = yolo_model.names[cls_id]
                         
-                        if conf > 0.50:
+                        if conf > 0.45: # خفضنا الثقة قليلاً لضمان عدم إغفال الأجسام أو الأشخاص البعيدين
                             coords = box.xyxy[0].cpu().numpy().astype(int)
                             x1, y1, x2, y2 = coords
 
                             if class_name == 'person':
                                 area = (x2 - x1) * (y2 - y1)
-                                if area > 3000:
+                                if area > 2500:
                                     person_count += 1
                                     cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
                                     cv2.putText(frame, f"Person {conf:.2f}", (x1, y1 - 10), 
@@ -144,7 +150,7 @@ class CheatingDetectorSystem:
             except Exception:
                 pass
 
-        # فحص حركة الرأس لجميع الطلاب
+        # فحص حركة الرأس المتقدم
         head_msg, head_alert = self.estimate_head_pose(frame)
         if head_alert:
             alerts.append(f"🚨 {head_msg}")
@@ -176,7 +182,7 @@ if source_option == "ملف فيديو من بياناتي (Data Set)":
         cap = cv2.VideoCapture(tfile.name)
         
         if st.button("بدء تحليل الفيديو وعرض النتائج المفصلة"):
-            st.write("جاري معالجة الفيديو واستخراج تقارير الغش...")
+            st.write("جاري معالجة الفيديو واستخراج تقارير الالتفات والغش...")
             stframe = st.empty()
             
             metrics_placeholder = st.empty()
@@ -198,7 +204,7 @@ if source_option == "ملف فيديو من بياناتي (Data Set)":
                     col3.metric("الكتب والمواد", book_count)
                 
                 with head_status_placeholder.container():
-                    st.info(f"👤 حالة حركة الوجه والالتفات: **{head_msg}**")
+                    st.warning(f"👤 تقرير حالة الالتفات وحركة الوجه: **{head_msg}**")
 
                 with alert_placeholder.container():
                     if alerts:
@@ -237,7 +243,7 @@ elif source_option == "رابط فيديو من الإنترنت (URL)":
                     col3.metric("الكتب والمواد", book_count)
                 
                 with head_status_placeholder.container():
-                    st.info(f"👤 حالة حركة الوجه والالتفات: **{head_msg}**")
+                    st.warning(f"👤 تقرير حالة الالتفات وحركة الوجه: **{head_msg}**")
 
                 with alert_placeholder.container():
                     if alerts:
@@ -265,7 +271,7 @@ elif source_option == "كاميرا الجهاز (Camera)":
         col2.metric("الهواتف المكتشفة", phone_count)
         col3.metric("الكتب والمواد", book_count)
 
-        st.info(f"👤 حالة حركة الوجه والالتفات: **{head_msg}**")
+        st.warning(f"👤 تقرير حالة الالتفات وحركة الوجه: **{head_msg}**")
 
         if alerts:
             play_alarm_sound()
