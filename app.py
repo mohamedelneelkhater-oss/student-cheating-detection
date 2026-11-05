@@ -159,7 +159,6 @@ if source_option == "ملف فيديو من بياناتي (Data Set)":
             st.write("جاري معالجة الفيديو وإظهار النتائج...")
             stframe = st.empty()
             
-            # حاويات عرض المؤشرات والإنذارات أسفل الفيديو مباشرة
             metrics_placeholder = st.empty()
             alert_placeholder = st.empty()
             
@@ -171,14 +170,12 @@ if source_option == "ملف فيديو من بياناتي (Data Set)":
                 processed_frame, alerts, p_count, phone_count, book_count = detector.process_frame_with_yolo(frame)
                 stframe.image(cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB), channels="RGB", use_container_width=True)
                 
-                # تحديث الـ Metrics أسفل الفيديو لكل إطار
                 with metrics_placeholder.container():
                     col1, col2, col3 = st.columns(3)
                     col1.metric("عدد الأشخاص", p_count)
                     col2.metric("الهواتف المكتشفة", phone_count)
                     col3.metric("الكتب والمواد", book_count)
                 
-                # عرض الإنذارات وتشغيل الصوت في حال وجود خطر
                 with alert_placeholder.container():
                     if alerts:
                         play_alarm_sound()
@@ -230,9 +227,4 @@ elif source_option == "كاميرا الجهاز (Camera)":
     img_file_buffer = st.camera_input("التقط صورة للتحقق الفوري")
 
     if img_file_buffer is not None:
-        bytes_data = img_file_buffer.getvalue()
-        cv2_img = cv2.imdecode(np.frombuffer(bytes_data, np.uint8), cv2.IMREAD_COLOR)
-
-        processed_frame, alerts, p_count, phone_count, book_count = detector.process_frame_with_yolo(cv2_img)
-
-        st.image(cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB), use_
+        bytes_data = img_file_buffer
