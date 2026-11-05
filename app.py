@@ -8,19 +8,17 @@ from ultralytics import YOLO
 st.set_page_config(page_title="نظام كشف الغش الذكي", layout="wide")
 
 # ==========================================
-# 1. كلاس معالجة كشف الغش (Cheating Detector)
+# نموذج كشف الغش المدمج (Cheating Detector)
 # ==========================================
 class CheatingDetector:
     def __init__(self, model_path="yolov8s.pt", conf_threshold=0.5):
-        # تحميل نموذج YOLO مع عتبة الثقة المحددة
         self.model = YOLO(model_path)
         self.conf_threshold = conf_threshold
         self.head_turn_counter = 0
         self.phone_counter = 0
-        self.alert_threshold = 30  # أكثر من 30 إطاراً متتالياً لمنع الإنذارات الكاذبة
+        self.alert_threshold = 30  # عداد الإطارات لمنع الإنذارات الكاذبة
 
     def detect_objects(self, frame):
-        """كشف الأجسام المحظورة مثل الهاتف والكتاب باستخدام YOLO"""
         results = self.model(frame, conf=self.conf_threshold, verbose=False)
         detected_items = []
         
@@ -31,14 +29,12 @@ class CheatingDetector:
                 conf = float(box.conf[0])
                 class_name = self.model.names[cls_id]
                 
-                # رصد الهاتف المحمول أو الكتب أو الفئات المخصصة
                 if class_name in ['cell phone', 'book', 'cheating']:
                     detected_items.append((class_name, conf, box.xyxy[0].tolist()))
                     
         return detected_items
 
     def estimate_head_pose(self, frame):
-        """تقدير حركة الالتفات البسيطة للرأس"""
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
         faces = face_cascade.detectMultiScale(gray, 1.1, 4)
@@ -53,27 +49,23 @@ class CheatingDetector:
         return is_turning, faces
 
     def process_frame(self, frame):
-        """معالجة الإطار وتطبيق العداد المتتالي (Frame Counter)"""
         objects = self.detect_objects(frame)
         is_turning, faces = self.estimate_head_pose(frame)
         
         alert_triggered = False
         alert_message = ""
 
-        # فحص الهاتف المحمول مع العداد المتتالي
         phone_detected = any(item[0] in ['cell phone', 'cheating'] for item in objects)
         if phone_detected:
             self.phone_counter += 1
         else:
             self.phone_counter = max(0, self.phone_counter - 1)
 
-        # فحص التفات الرأس مع العداد المتتالي
         if is_turning:
             self.head_turn_counter += 1
         else:
             self.head_turn_counter = max(0, self.head_turn_counter - 1)
 
-        # تفعيل الإنذار فقط إذا تجاوزت الإطارات المتتالية الحد المسموح (30 إطاراً)
         if self.phone_counter >= self.alert_threshold:
             alert_triggered = True
             alert_message = "إنذار: تم رصد الهاتف المحمول لفترة طويلة!"
@@ -81,7 +73,6 @@ class CheatingDetector:
             alert_triggered = True
             alert_message = "إنذار: تم رصد التفات متواصل للرأس!"
 
-        # رسم المربعات والتنبيهات على الإطار
         box_color = (0, 0, 255) if alert_triggered else (0, 255, 0)
         
         for (x, y, w_box, h_box) in faces:
@@ -96,7 +87,7 @@ class CheatingDetector:
         return frame, alert_triggered, alert_message, self.phone_counter, self.head_turn_counter
 
 # ==========================================
-# 2. واجهة المستخدم Streamlit
+# واجهة مستخدم Streamlit
 # ==========================================
 st.title("🚨 نظام تتبع ومراقبة حالات الغش في الامتحانات")
 st.markdown("---")
@@ -148,7 +139,7 @@ if video_path and st.sidebar.button("بدء المعالجة والتحليل"):
         st_frame.image(processed_frame, channels="RGB", use_column_width=True)
         
         frame_count_metric.metric("عداد إطارات الهاتف المتتالية", p_count)
-    -    head_count_metric.metric("عداد إطارات التفات الرأس", h_count)
+        head_count_metric.metric("عداد إطارات التفات الرأس", h_count)
 
         if alert:
             alert_box.error(f"⚠️ {msg} (التوقيت: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')})")
