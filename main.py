@@ -1,5 +1,6 @@
 """Command line entry point: python main.py --video samples/sample_exam.mp4"""
 import argparse
+from src.database import AlertDatabase
 from dataclasses import replace
 from pathlib import Path
 
