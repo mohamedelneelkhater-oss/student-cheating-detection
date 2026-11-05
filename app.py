@@ -1,6 +1,8 @@
 import cv2
 import numpy as np
 import streamlit as st
+import tempfile
+import os
 
 class CheatingDetector:
     def __init__(self):
@@ -27,21 +29,67 @@ st.title("نظام كشف الغش للطلاب (Student Cheating Detection)")
 
 detector = CheatingDetector()
 
-img_file_buffer = st.camera_input("التقط صورة للتحقق")
+# اختيار مصدر الفيديو (من الجهاز، من الإنترنت، أو الكاميرا)
+source_option = st.sidebar.selectbox(
+    "اختر مصدر الفيديو:",
+    ("كاميرا الجهاز (Camera)", "ملف فيديو من الجهاز (Data)", "رابط فيديو من الإنترنت (URL)")
+)
 
-if img_file_buffer is not None:
-    bytes_data = img_file_buffer.getvalue()
-    cv2_img = cv2.imdecode(np.frombuffer(bytes_data, np.uint8), cv2.IMREAD_COLOR)
+if source_option == "كاميرا الجهاز (Camera)":
+    st.info("قم بالسماح للمتصفح بالوصول إلى الكاميرا عبر النقر على زر الإذن الظاهر في صندوق الكاميرا أدناه.")
+    img_file_buffer = st.camera_input("التقط صورة للتحقق")
 
-    processed_frame, alert, msg, p_count, h_count = detector.process_frame(cv2_img)
+    if img_file_buffer is not None:
+        bytes_data = img_file_buffer.getvalue()
+        cv2_img = cv2.imdecode(np.frombuffer(bytes_data, np.uint8), cv2.IMREAD_COLOR)
 
-    st.image(cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB), use_container_width=True)
+        processed_frame, alert, msg, p_count, h_count = detector.process_frame(cv2_img)
 
-    col1, col2 = st.columns(2)
-    col1.metric("عدد الأشخاص", p_count)
-    col2.metric("عدد الهواتف/التنبيهات", h_count)
+        st.image(cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB), use_container_width=True)
 
-    if alert:
-        st.error(msg)
-    else:
-        st.success("الوضع طبيعي: " + msg)
+        col1, col2 = st.columns(2)
+        col1.metric("عدد الأشخاص", p_count)
+        col2.metric("عدد الهواتف/التنبيهات", h_count)
+
+        if alert:
+            st.error(msg)
+        else:
+            st.success("الوضع طبيعي: " + msg)
+
+elif source_option == "ملف فيديو من الجهاز (Data)":
+    uploaded_file = st.file_uploader("اختر ملف فيديو (MP4, AVI, MOV)", type=["mp4", "avi", "mov"])
+    
+    if uploaded_file is not None:
+        # حفظ الملف مؤقتاً لقراءته عبر OpenCV
+        tfile = tempfile.NamedTemporaryFile(delete=False)
+        tfile.write(uploaded_file.read())
+        
+        cap = cv2.VideoCapture(tfile.name)
+        st.video(uploaded_file)
+        
+        success, frame = cap.read()
+        if success:
+            processed_frame, alert, msg, p_count, h_count = detector.process_frame(frame)
+            st.image(cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB), use_container_width=True)
+            
+            col1, col2 = st.columns(2)
+            col1.metric("عدد الأشخاص", p_count)
+            col2.metric("عدد الهواتف/التنبيهات", h_count)
+
+elif source_option == "رابط فيديو من الإنترنت (URL)":
+    video_url = st.text_input("أدخل رابط الفيديو المباشر (مثل رابط MP4 من الإنترنت):")
+    
+    if video_url:
+        st.video(video_url)
+        cap = cv2.VideoCapture(video_url)
+        success, frame = cap.read()
+        
+        if success:
+            processed_frame, alert, msg, p_count, h_count = detector.process_frame(frame)
+            st.image(cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB), use_container_width=True)
+            
+            col1, col2 = st.columns(2)
+            col1.metric("عدد الأشخاص", p_count)
+            col2.metric("عدد الهواتف/التنبيهات", h_count)
+        else:
+            st.warning("تعذر قراءة الفيديو من الرابط المباشر، تأكد من صحة الرابط وأنه يدعم البث المباشر.")
