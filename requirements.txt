@@ -8,3 +8,4 @@ ultralytics
 opencv-python-headless
 streamlit
 numpy
+mediapipe
