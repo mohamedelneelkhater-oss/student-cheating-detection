@@ -19,7 +19,7 @@ except ImportError:
 
 st.set_page_config(page_title="نظام كشف الغش الذكي - YOLOv11", layout="wide")
 
-st.title("🎓 نظام كشف الغش الذكي (YOLOv11 + Head Pose + تنبيهات مفصلة)")
+st.title("🎓 نظام كشف الغش الذكي (YOLOv11 + Head Pose + جرس إنذار)")
 
 # الشريط الجانبي لاختيار مصادر الفيديو
 st.sidebar.header("إدارة مصادر الفيديو")
@@ -49,40 +49,59 @@ class CheatingDetectorSystem:
             try:
                 if hasattr(mp, 'solutions') and hasattr(mp.solutions, 'face_mesh'):
                     self.mp_face_mesh = mp.solutions.face_mesh
-                    self.face_mesh = self.mp_face_mesh.FaceMesh(min_detection_confidence=0.5, min_tracking_confidence=0.5)
+                    self.face_mesh = self.mp_face_mesh.FaceMesh(
+                        max_num_faces=5,  # السماح بتتبع عدة وجوه في نفس الإطار
+                        min_detection_confidence=0.4, 
+                        min_tracking_confidence=0.4
+                    )
             except Exception:
                 self.face_mesh = None
 
     def estimate_head_pose(self, frame):
-        """تتبع التفات الرأس وحركة الوجه بدقة"""
-        pose_status = "الوجه في الوضع الطبيعي"
+        """تتبع دقيق لحركة الوجه والتفات الرأس لجميع الطلاب في الإطار"""
+        pose_status = "الوضع الطبيعي للوجه"
         is_alert = False
+        alerts_list = []
 
         if self.face_mesh is not None:
             try:
                 rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 results = self.face_mesh.process(rgb_frame)
+                
                 if results.multi_face_landmarks:
+                    face_idx = 1
                     for face_landmarks in results.multi_face_landmarks:
+                        # نقاط الأنف، العين اليسرى، العين اليمنى، وحافة الوجه
                         nose = face_landmarks.landmark[1]
                         left_eye = face_landmarks.landmark[33]
                         right_eye = face_landmarks.landmark[263]
                         
-                        if nose.x < left_eye.x - 0.02:
-                            pose_status = "⚠️ التفات يميناً (محاولة التفتت)"
-                            is_alert = True
-                        elif nose.x > right_eye.x + 0.02:
-                            pose_status = "⚠️ التفات يساراً (محاولة التفتت)"
-                            is_alert = True
+                        # حساب المسافات لتقدير دوران الرأس أفقي وعمودي
+                        eye_dist = abs(right_eye.x - left_eye.x)
+                        if eye_dist > 0:
+                            offset = (nose.x - (left_eye.x + right_eye.x) / 2) / eye_dist
+                            
+                            # إذا تجاوز الانحراف النسب الطبيعية (التفات جانبي أو التفتت للخلف)
+                            if offset < -0.25:
+                                alerts_list.append(f"⚠️ طالب #{face_idx}: ملتفت بيسار الرأس / أو التفات جانبي للخلف!")
+                                is_alert = True
+                            elif offset > 0.25:
+                                alerts_list.append(f"⚠️ طالب #{face_idx}: ملتفت بيمين الرأس / أو التفات جانبي للخلف!")
+                                is_alert = True
+                        
+                        face_idx += 1
+                        
+                    if is_alert:
+                        pose_status = " | ".join(alerts_list)
                 else:
-                    pose_status = "⚠️ تحذير: الوجه مختفي عن الكاميرا!"
+                    pose_status = "⚠️ تحذير: الوجه غير واضح أو ملتفت بالكامل بعيداً عن الكاميرا!"
                     is_alert = True
             except Exception:
                 pass
         return pose_status, is_alert
 
     def process_frame_with_yolo(self, frame):
-        """كشف الأجسام المحظورة والأشخاص باستخدام YOLO"""
+        """كشف الأجسام المحظورة والأشخاص وتحديد التفات الرأس"""
         alerts = []
         person_count = 0
         phone_count = 0
@@ -97,13 +116,13 @@ class CheatingDetectorSystem:
                         conf = float(box.conf[0])
                         class_name = yolo_model.names[cls_id]
                         
-                        if conf > 0.60:
+                        if conf > 0.50:
                             coords = box.xyxy[0].cpu().numpy().astype(int)
                             x1, y1, x2, y2 = coords
 
                             if class_name == 'person':
                                 area = (x2 - x1) * (y2 - y1)
-                                if area > 4000:
+                                if area > 3000:
                                     person_count += 1
                                     cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
                                     cv2.putText(frame, f"Person {conf:.2f}", (x1, y1 - 10), 
@@ -125,12 +144,11 @@ class CheatingDetectorSystem:
             except Exception:
                 pass
 
-        # فحص حركة الرأس
+        # فحص حركة الرأس لجميع الطلاب
         head_msg, head_alert = self.estimate_head_pose(frame)
         if head_alert:
-            alerts.append(f"⚠️ {head_msg}")
+            alerts.append(f"🚨 {head_msg}")
 
-        # تنبيه تعدد الأشخاص فقط إذا تجاوزوا شخصاً واحداً
         if person_count > 1:
             alerts.append(f"🚨 [تنبيه خطر]: يوجد {person_count} أشخاص في نطاق الاختبار!")
 
@@ -146,7 +164,7 @@ def play_alarm_sound():
     """
     st.markdown(alarm_html, unsafe_allow_html=True)
 
-# --- 1. خيار ملف فيديو من بياناتي (Data Set) ---
+# --- واجهة Streamlit ---
 if source_option == "ملف فيديو من بياناتي (Data Set)":
     st.markdown("### 📁 تحليل ملف فيديو من مجموعة البيانات الخاصة بك (Data Set)")
     uploaded_file = st.file_uploader("قم برفع ملف فيديو (MP4, AVI, MOV)", type=["mp4", "avi", "mov"])
@@ -173,28 +191,24 @@ if source_option == "ملف فيديو من بياناتي (Data Set)":
                 processed_frame, alerts, p_count, phone_count, book_count, head_msg = detector.process_frame_with_yolo(frame)
                 stframe.image(cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB), channels="RGB", use_container_width=True)
                 
-                # عرض مؤشرات الأعداد
                 with metrics_placeholder.container():
                     col1, col2, col3 = st.columns(3)
                     col1.metric("عدد الأشخاص", p_count)
                     col2.metric("الهواتف المكتشفة", phone_count)
                     col3.metric("الكتب والمواد", book_count)
                 
-                # عرض حالة حركة الوجه والرأس
                 with head_status_placeholder.container():
                     st.info(f"👤 حالة حركة الوجه والالتفات: **{head_msg}**")
 
-                # عرض الإنذارات وتشغيل الصوت
                 with alert_placeholder.container():
                     if alerts:
                         play_alarm_sound()
                         for alert in alerts:
                             st.error(alert)
                     else:
-                        st.success("الوضع سليم في هذا الإطار ولم يتم رصد أي غش.")
+                        st.success("الوضع سليم في هذا الإطار.")
             cap.release()
 
-# --- 2. خيار رابط فيديو من الإنترنت (URL) ---
 elif source_option == "رابط فيديو من الإنترنت (URL)":
     st.markdown("### 🌐 جلب وتحليل فيديو من الإنترنت عبر الرابط")
     video_url = st.text_input("أدخل رابط الفيديو المباشر (رابط ملف فيديو مباشر MP4):")
@@ -234,7 +248,6 @@ elif source_option == "رابط فيديو من الإنترنت (URL)":
                         st.success("الوضع سليم.")
             cap.release()
 
-# --- 3. خيار كاميرا الجهاز (Camera) ---
 elif source_option == "كاميرا الجهاز (Camera)":
     st.markdown("### 📷 البث المباشر من كاميرا الجهاز")
     img_file_buffer = st.camera_input("التقط صورة للتحقق الفوري")
