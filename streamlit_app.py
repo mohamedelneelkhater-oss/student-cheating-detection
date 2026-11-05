@@ -4,9 +4,8 @@ import tempfile
 import threading
 from pathlib import Path
 
-import cv2
-import pandas as pd
-import streamlit as st
+import sys
+from pathlib import Path
 
 # ==========================================
 # 0. FIX PYTHON PATH FOR STREAMLIT CLOUD
@@ -14,6 +13,10 @@ import streamlit as st
 ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))
+
+import cv2
+import pandas as pd
+import streamlit as st
 
 from src.database import AlertDatabase
 from src.detector import CheatingMonitor, DetectorConfig, format_notification
