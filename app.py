@@ -58,7 +58,7 @@ class CheatingDetectorSystem:
                 self.face_mesh = None
 
     def estimate_head_pose(self, frame):
-        """تحليل دقيق لحركة الرأس والالتفات للكشف عن محاولات الغش أو النظر للزملاء"""
+        """تحليل دقيق لحركة الرأس والالتفات"""
         pose_status = "وضع طبيعي ومنتظم"
         is_alert = False
 
@@ -78,15 +78,15 @@ class CheatingDetectorSystem:
                             offset = (nose.x - (left_eye.x + right_eye.x) / 2) / eye_dist
                             
                             if offset < -0.15:
-                                pose_status = "🚨 تنبيه غش: الطالب ملتفت نحو اليسار (مشاهدة ورقة زميل أو محيط خارجي)!"
+                                pose_status = "🚨 تنبيه غش: الطالب ملتفت نحو اليسار (مشاهدة ورقة زميل)!"
                                 is_alert = True
                                 break
                             elif offset > 0.15:
-                                pose_status = "🚨 تنبيه غش: الطالب ملتفت نحو اليمين (مشاهدة ورقة زميل أو محيط خارجي)!"
+                                pose_status = "🚨 تنبيه غش: الطالب ملتفت نحو اليمين (مشاهدة ورقة زميل)!"
                                 is_alert = True
                                 break
                 else:
-                    pose_status = "⚠️ تنبيه: وجه الطالب غير مرئي أو ملتفت بالكامل للوراء!"
+                    pose_status = "⚠️ تنبيه: وجه الطالب غير مرئي أو ملتفت بالكامل للخلف!"
                     is_alert = True
             except Exception:
                 pass
@@ -112,7 +112,6 @@ class CheatingDetectorSystem:
                             coords = box.xyxy[0].cpu().numpy().astype(int)
                             x1, y1, x2, y2 = coords
 
-                            # كشف الأشخاص
                             if class_name == 'person':
                                 area = (x2 - x1) * (y2 - y1)
                                 if area > 2500:
@@ -121,7 +120,6 @@ class CheatingDetectorSystem:
                                     cv2.putText(frame, f"Person {conf:.2f}", (x1, y1 - 10), 
                                                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
                             
-                            # كشف الهواتف (غش بالهاتف)
                             elif class_name in ['cell phone', 'phone']:
                                 phone_detected = True
                                 cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 3)
@@ -129,22 +127,19 @@ class CheatingDetectorSystem:
                                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
                                 alerts.append("🚨 [حالة غش مؤكدة]: تم رصد استخدام هاتف محمول محظور!")
 
-                            # كشف الكتب أو الأوراق الخارجية (غش بالكتاب)
                             elif class_name in ['book', 'laptop']:
                                 book_detected = True
                                 cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 165, 255), 3)
-                                cv2.putText(frame, f"⚠️ BOOK/MATERIAL DETECTED", (x1, y1 - 10), 
+                                cv2.putText(frame, f"⚠️ BOOK/MATERIAL", (x1, y1 - 10), 
                                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 165, 255), 2)
-                                alerts.append("📚 [حالة غش مؤكدة]: تم رصد كتاب أو أوراق خارجية غير مسموحة!")
+                                alerts.append("📚 [حالة غش مؤكدة]: تم رصد كتاب أو أوراق خارجية!")
             except Exception:
                 pass
 
-        # فحص الالتفات وحركة الوجه
         head_msg, head_alert = self.estimate_head_pose(frame)
         if head_alert:
             alerts.append(f"👀 {head_msg}")
 
-        # تنبيه تعدد الأشخاص (غش جماعي أو وجود شخص مساعد)
         if person_count > 1:
             alerts.append(f"👥 [تنبيه غش جماعي]: يوجد {person_count} أشخاص داخل نطاق الكاميرا!")
 
@@ -172,17 +167,22 @@ if source_option == "ملف فيديو من بياناتي (Data Set)":
         cap = cv2.VideoCapture(tfile.name)
         
         if st.button("بدء تحليل الفيديو واستخراج تقارير الغش الشاملة"):
-            st.write("جاري معالجة الفيديو إطاراً بإطار ورصد حالات الغش...")
+            st.write("جاري معالجة الفيديو بتقنية تخطي الإطارات لتخفيف الحمل على المعالج...")
             stframe = st.empty()
             
             metrics_placeholder = st.empty()
             head_status_placeholder = st.empty()
             alert_placeholder = st.empty()
             
+            frame_count = 0
             while cap.isOpened():
                 ret, frame = cap.read()
                 if not ret:
                     break
+                
+                frame_count += 1
+                if frame_count % 3 != 0:
+                    continue
                 
                 processed_frame, alerts, p_count, phone_det, book_det, head_msg = detector.process_frame_with_yolo(frame)
                 stframe.image(cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB), channels="RGB", use_container_width=True)
@@ -205,7 +205,7 @@ if source_option == "ملف فيديو من بياناتي (Data Set)":
                         for alert in alerts:
                             st.error(alert)
                     else:
-                        st.success("✨ الوضع سليم تماماً: لم يتم رصد أي محاولات غش في هذا الإطار.")
+                        st.success("✨ الوضع سليم تماماً في هذا الإطار.")
             cap.release()
 
 # --- 2. خيار رابط فيديو من الإنترنت (URL) ---
@@ -221,11 +221,16 @@ elif source_option == "رابط فيديو من الإنترنت (URL)":
             head_status_placeholder = st.empty()
             alert_placeholder = st.empty()
             
+            frame_count = 0
             while cap.isOpened():
                 ret, frame = cap.read()
                 if not ret:
                     st.warning("انتهى الفيديو أو تعذر الوصول للرابط.")
                     break
+                
+                frame_count += 1
+                if frame_count % 3 != 0:
+                    continue
                 
                 processed_frame, alerts, p_count, phone_det, book_det, head_msg = detector.process_frame_with_yolo(frame)
                 stframe.image(cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB), channels="RGB", use_container_width=True)
