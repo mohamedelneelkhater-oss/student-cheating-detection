@@ -7,6 +7,7 @@ from ultralytics import YOLO
 @dataclass
 class DetectorConfig:
     weights: str = "models/best.pt"
+    fallback_weights: str = "yolo11n.pt"  # نموذج YOLO11 الافتراضي العام
     conf: float = 0.50
     screenshot_dir: str = "alerts/screenshots"
     db_path: str = "alerts/alerts.db"
@@ -26,11 +27,22 @@ class CheatingMonitor:
         self._load_model()
 
     def _load_model(self):
+        # محاولة تحميل نموذج YOLO11 المخصص أولاً إن وجد
         if os.path.exists(self.cfg.weights):
-            self.model = YOLO(self.cfg.weights)
-        else:
-            # استخدام نموذج افتراضي في حال عدم توفر النموذج المخصص مؤقتاً لتجنب التوقف
-            pass
+            try:
+                self.model = YOLO(self.cfg.weights)
+                print(f"Loaded custom YOLO11 model from {self.cfg.weights}")
+                return
+            except Exception as e:
+                print(f"Error loading custom model: {e}")
+
+        # إذا لم يكن موجوداً، تحميل نموذج YOLO11 العام تلقائياً
+        try:
+            print(f"Loading default YOLO11 model ({self.cfg.fallback_weights})...")
+            self.model = YOLO(self.cfg.fallback_weights)
+        except Exception as e:
+            print(f"Error loading fallback YOLO11 model: {e}")
+            self.model = None
 
     def stream_video(self, video_path, stop_event=None):
         import cv2
@@ -52,7 +64,7 @@ class CheatingMonitor:
             frame_index += 1
             alerts_in_frame = []
 
-            # تحليل الفريم باستخدام نموذج YOLO إذا كان محملاً
+            # تحليل الفريم باستخدام YOLO11
             if self.model:
                 results = self.model(
                     frame, conf=self.cfg.conf, verbose=False
