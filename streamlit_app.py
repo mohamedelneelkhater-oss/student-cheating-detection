@@ -1,18 +1,22 @@
-import streamlit as st
-import cv2
-import pandas as pd
-import tempfile
+import sys
 import os
+import tempfile
 import threading
-
 from pathlib import Path
 
+import cv2
+import pandas as pd
+import streamlit as st
+
+# ==========================================
+# 0. FIX PYTHON PATH FOR STREAMLIT CLOUD
+# ==========================================
+ROOT = Path(__file__).resolve().parent
+if str(ROOT) not in sys.path:
+    sys.path.append(str(ROOT))
+
 from src.database import AlertDatabase
-from src.detector import (
-    CheatingMonitor,
-    DetectorConfig,
-    format_notification
-)
+from src.detector import CheatingMonitor, DetectorConfig, format_notification
 
 
 # ==========================================
@@ -20,12 +24,8 @@ from src.detector import (
 # ==========================================
 
 st.set_page_config(
-    page_title="Student Cheating Detection",
-    page_icon="🎓",
-    layout="wide"
+    page_title="Student Cheating Detection", page_icon="🎓", layout="wide"
 )
-
-ROOT = Path(__file__).resolve().parent
 
 MODEL_PATH = ROOT / "models" / "best.pt"
 SCREENSHOT_DIR = ROOT / "alerts" / "screenshots"
@@ -49,13 +49,13 @@ if "monitor" not in st.session_state:
     cfg = DetectorConfig(
         weights=str(MODEL_PATH),
         screenshot_dir=str(SCREENSHOT_DIR),
-        db_path=str(DB_PATH)
+        db_path=str(DB_PATH),
     )
 
     st.session_state.monitor = CheatingMonitor(
         cfg,
         db=st.session_state.db,
-        on_alert=lambda event: st.session_state.alert_events.append(event)
+        on_alert=lambda event: st.session_state.alert_events.append(event),
     )
 
 
@@ -66,13 +66,7 @@ if "monitor" not in st.session_state:
 st.sidebar.title("🎓 Navigation")
 
 page = st.sidebar.radio(
-    "Select Page",
-    [
-        "Home",
-        "Cheating Detection",
-        "Alert History",
-        "About"
-    ]
+    "Select Page", ["Home", "Cheating Detection", "Alert History", "About"]
 )
 
 
@@ -84,17 +78,17 @@ if page == "Home":
 
     st.title("🎓 Student Cheating Detection System")
 
-    st.subheader(
-        "AI-Powered Exam Monitoring and Cheating Detection"
-    )
+    st.subheader("AI-Powered Exam Monitoring and Cheating Detection")
 
-    st.write("""
+    st.write(
+        """
     Welcome to the Student Cheating Detection System.
 
     This application uses Computer Vision and Deep Learning
     to analyze examination videos and identify suspicious
     student behavior.
-    """)
+    """
+    )
 
     st.divider()
 
@@ -125,25 +119,20 @@ elif page == "Cheating Detection":
 
     st.title("📹 Cheating Detection")
 
-    st.write(
-        "Upload an examination video to analyze suspicious behavior."
-    )
+    st.write("Upload an examination video to analyze suspicious behavior.")
 
     st.divider()
 
     # Check model
     if not MODEL_PATH.exists():
 
-        st.error(
-            f"Model weights not found: {MODEL_PATH}"
-        )
+        st.error(f"Model weights not found: {MODEL_PATH}")
 
         st.stop()
 
     # Upload video
     uploaded_video = st.file_uploader(
-        "Upload Examination Video",
-        type=["mp4", "avi", "mov", "mkv"]
+        "Upload Examination Video", type=["mp4", "avi", "mov", "mkv"]
     )
 
     # Confidence threshold
@@ -152,7 +141,7 @@ elif page == "Cheating Detection":
         min_value=0.10,
         max_value=0.90,
         value=0.50,
-        step=0.05
+        step=0.05,
     )
 
     st.divider()
@@ -169,7 +158,7 @@ elif page == "Cheating Detection":
     if st.button(
         "🚀 Start Detection",
         type="primary",
-        disabled=uploaded_video is None
+        disabled=uploaded_video is None,
     ):
 
         if uploaded_video is None:
@@ -189,8 +178,7 @@ elif page == "Cheating Detection":
                 suffix = Path(uploaded_video.name).suffix
 
                 with tempfile.NamedTemporaryFile(
-                    delete=False,
-                    suffix=suffix
+                    delete=False, suffix=suffix
                 ) as temp_file:
 
                     temp_file.write(uploaded_video.getvalue())
@@ -210,8 +198,7 @@ elif page == "Cheating Detection":
                 with st.spinner("Analyzing examination video..."):
 
                     for item in monitor.stream_video(
-                        temp_path,
-                        stop_event=stop_event
+                        temp_path, stop_event=stop_event
                     ):
 
                         frame = item["frame"]
@@ -221,23 +208,17 @@ elif page == "Cheating Detection":
                         total_frames = item["total_frames"] or 1
 
                         # Convert BGR to RGB
-                        frame_rgb = cv2.cvtColor(
-                            frame,
-                            cv2.COLOR_BGR2RGB
-                        )
+                        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
                         # Display processed frame
                         video_placeholder.image(
                             frame_rgb,
                             caption="Live Video Analysis",
-                            use_container_width=True
+                            use_container_width=True,
                         )
 
                         # Update progress
-                        progress = min(
-                            frame_index / total_frames,
-                            1.0
-                        )
+                        progress = min(frame_index / total_frames, 1.0)
 
                         progress_bar.progress(progress)
 
@@ -247,9 +228,7 @@ elif page == "Cheating Detection":
 
                 progress_bar.progress(1.0)
 
-                status_text.success(
-                    "Video analysis completed successfully!"
-                )
+                status_text.success("Video analysis completed successfully!")
 
                 st.success("Detection process finished.")
 
@@ -295,9 +274,7 @@ elif page == "Alert History":
 
     st.title("🚨 Alert History")
 
-    st.write(
-        "View all previously recorded suspicious activities."
-    )
+    st.write("View all previously recorded suspicious activities.")
 
     if st.button("🔄 Refresh History"):
 
@@ -313,36 +290,23 @@ elif page == "Alert History":
 
             for r in records:
 
-                history.append({
-
-                    "ID": r["id"],
-
-                    "Date / Time": str(
-                        r["detected_at"]
-                    ).replace("T", " "),
-
-                    "Behavior": r["behavior"],
-
-                    "Confidence": round(
-                        float(r["confidence"]), 2
-                    ),
-
-                    "Screenshot": r["screenshot_path"]
-
-                })
+                history.append(
+                    {
+                        "ID": r["id"],
+                        "Date / Time": str(r["detected_at"]).replace(
+                            "T", " "
+                        ),
+                        "Behavior": r["behavior"],
+                        "Confidence": round(float(r["confidence"]), 2),
+                        "Screenshot": r["screenshot_path"],
+                    }
+                )
 
             df = pd.DataFrame(history)
 
-            st.metric(
-                "Total Recorded Alerts",
-                len(df)
-            )
+            st.metric("Total Recorded Alerts", len(df))
 
-            st.dataframe(
-                df,
-                use_container_width=True,
-                hide_index=True
-            )
+            st.dataframe(df, use_container_width=True, hide_index=True)
 
             st.divider()
 
@@ -350,16 +314,13 @@ elif page == "Alert History":
             st.subheader("🖼️ View Alert Screenshot")
 
             screenshot_options = [
-                r["Screenshot"]
-                for r in history
-                if r["Screenshot"]
+                r["Screenshot"] for r in history if r["Screenshot"]
             ]
 
             if screenshot_options:
 
                 selected_screenshot = st.selectbox(
-                    "Select Screenshot",
-                    screenshot_options
+                    "Select Screenshot", screenshot_options
                 )
 
                 if os.path.exists(selected_screenshot):
@@ -367,7 +328,7 @@ elif page == "Alert History":
                     st.image(
                         selected_screenshot,
                         caption="Detected Suspicious Activity",
-                        use_container_width=True
+                        use_container_width=True,
                     )
 
                 else:
@@ -391,7 +352,8 @@ elif page == "About":
 
     st.title("ℹ️ About the Project")
 
-    st.write("""
+    st.write(
+        """
     # Student Cheating Detection System
 
     This project uses Artificial Intelligence and Computer Vision
@@ -414,6 +376,7 @@ elif page == "About":
     - Machine Learning / Deep Learning
     - Computer Vision
     - SQLite
-    """)
+    """
+    )
 
     st.success("Student Cheating Detection System")
