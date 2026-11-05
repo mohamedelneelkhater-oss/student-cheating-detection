@@ -1,25 +1,22 @@
 import sys
+from pathlib import Path
+
+# ضبط المسار العام
+ROOT = Path(__file__).resolve().parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 import os
 import tempfile
 import threading
-from pathlib import Path
-
-import sys
-from pathlib import Path
-
-# ==========================================
-# 0. FIX PYTHON PATH FOR STREAMLIT CLOUD
-# ==========================================
-ROOT = Path(__file__).resolve().parent
-if str(ROOT) not in sys.path:
-    sys.path.append(str(ROOT))
 
 import cv2
 import pandas as pd
 import streamlit as st
 
-from src.database import AlertDatabase
-from src.detector import CheatingMonitor, DetectorConfig, format_notification
+# استيراد الملفات مباشرة بدون استخدام src.
+from database import AlertDatabase
+from detector import CheatingMonitor, DetectorConfig, format_notification
 
 
 # ==========================================
