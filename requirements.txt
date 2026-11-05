@@ -12,3 +12,9 @@ streamlit>=1.40
 imageio-ffmpeg
 # Optional cloud sync (Firestore + Storage):
 # firebase-admin
+streamlit
+opencv-python-headless
+pandas
+numpy
+Pillow
+ultralytics
