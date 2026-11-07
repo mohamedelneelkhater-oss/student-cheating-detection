@@ -1,5 +1,5 @@
 """
-Exam Cheating Detection System  -  v10.0 True Frame-Accurate Clean Count (Single-file Streamlit app)
+Exam Cheating Detection System  -  v11.0 Ultimate Clean Detection (Single-file Streamlit app)
 """
 
 import os
@@ -22,7 +22,7 @@ try:
 except ImportError:
     YOLO_AVAILABLE = False
 
-APP_VERSION = "v10.0 FRAME-ACCURATE CLEAN"
+APP_VERSION = "v11.0 ULTIMATE CLEAN DETECTION"
 
 # ----------------------------------------------------------------------------
 # Constants & Settings
@@ -33,7 +33,7 @@ DEFAULT_DATASET_DIRS = ["samples", "data", "dataset", "/kaggle/input"]
 PAGE_HOSTS = ("youtube.com", "youtu.be", "vimeo.com", "facebook.com", "tiktok.com", "dailymotion.com")
 
 KP_CONF = 0.35
-MIN_PERSON_AREA = 3000  # مساحة تضمن استبعاد أي خلفيات فارغة أو شوائب بعيدة
+MIN_PERSON_AREA = 2500  # مساحة دقيقة لضمان رصد الطلاب الظاهرين بوضوح فقط
 MAX_EVIDENCE = 60
 NORMAL_WORDS = ("normal", "not_cheat", "not cheat", "no_cheat", "non_cheat", "non-cheat", "honest", "clean")
 
@@ -55,7 +55,7 @@ PRESETS = {
 
 
 # ----------------------------------------------------------------------------
-# Advanced Geometry & Clean Box Fusion Helpers
+# Precise Detection & Box Filtering Helpers
 # ----------------------------------------------------------------------------
 def inside(box, x, y):
     return box[0] <= x <= box[2] and box[1] <= y <= box[3]
@@ -74,8 +74,8 @@ def compute_iou(box1, box2):
     return inter_area / float(box1_area + box2_area - inter_area)
 
 
-def fuse_overlapping_boxes(persons, iou_threshold=0.25):
-    """دمج المربعات المتداخلة بقوة تامة لمنع أي تكرار لنفس الطالب."""
+def filter_clean_persons(persons, iou_threshold=0.2):
+    """فلترة ودمج المربعات لمنع أي تكرار وهمي لنفس الطالب بدقة تامة."""
     if not persons:
         return []
     
@@ -93,7 +93,7 @@ def fuse_overlapping_boxes(persons, iou_threshold=0.25):
             inter = max(0, x2 - x1) * max(0, y2 - y1)
             area1 = (box1[2] - box1[0]) * (box1[3] - box1[1])
             
-            if iou > iou_threshold or (area1 > 0 and inter / area1 > 0.5):
+            if iou > iou_threshold or (area1 > 0 and inter / area1 > 0.45):
                 should_keep = False
                 break
         if should_keep:
@@ -136,7 +136,7 @@ def find_neighbor(person, direction, persons, reach):
         dy = (oy1 + oy2) / 2 - cy
         if (direction == "LEFT" and dx >= 0) or (direction == "RIGHT" and dx <= 0):
             continue
-        if abs(dx) > reach * w or abs(dy) > 1.2 * h:
+        if abs(dx) > reach * w or abs(dy) > 1.5 * h:
             continue
         if best is None or abs(dx) < best[1]:
             best = (o["id"], abs(dx))
@@ -350,7 +350,7 @@ class ExamMonitor:
             if area >= MIN_PERSON_AREA:
                 persons.append({"id": int(pid), "box": (x1, y1, x2, y2), "kp": kp, "area": area})
         
-        persons = fuse_overlapping_boxes(persons)
+        persons = filter_clean_persons(persons)
         return persons
 
     def _run_detector(self, model, class_ids, conf, frame, source):
@@ -632,7 +632,6 @@ def analyze_video(source, source_name, monitor_args, perf):
         annotated, info = monitor.process(frame, frame_idx / fps, frame_idx, track=True)
         processed += 1
         
-        # العد اللحظي الفعلي من الإطار الحالي لمنع أي تضخم أو تكرار
         latest_student_count = len(info.get("persons", []))
 
         if not perf.turbo and (processed % perf.preview_every == 0 or info["new"]):
@@ -732,7 +731,7 @@ def show_report(result):
 # ----------------------------------------------------------------------------
 st.set_page_config(page_title="Universal Exam Cheating Detection System", page_icon="🎓", layout="wide")
 st.title(f"🎓 Universal Exam Cheating Detection & Analytics System  ·  {APP_VERSION}")
-st.caption("Frame-accurate instant count: Directly matches the exact visible student count in any video format without accumulation errors.")
+st.caption("Ultimate clean detection: Perfect student counting and precise cheating violation filtering for any video.")
 
 st.sidebar.header("⚡ Speed Preset")
 preset = st.sidebar.selectbox("Speed preset", list(PRESETS), index=0)
