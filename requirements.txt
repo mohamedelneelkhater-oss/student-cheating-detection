@@ -4,3 +4,9 @@ scikit-learn
 nltk
 pypdf
 python-docx
+streamlit
+opencv-python-headless
+numpy
+pandas
+ultralytics
+mediapipe
