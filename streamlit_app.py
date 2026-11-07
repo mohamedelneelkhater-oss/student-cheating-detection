@@ -1,5 +1,5 @@
 """
-Exam Cheating Detection & Analytics System  -  v16.0 Final Perfect & Indentation-Fixed (Single-file Streamlit app)
+Exam Cheating Detection & Analytics System  -  v17.0 Bulletproof Stable Version (Single-file Streamlit app)
 """
 
 import os
@@ -22,7 +22,7 @@ try:
 except ImportError:
     YOLO_AVAILABLE = False
 
-APP_VERSION = "v16.0 FINAL PERFECT"
+APP_VERSION = "v17.0 BULLETPROOF STABLE"
 
 # ----------------------------------------------------------------------------
 # Constants & Settings
@@ -305,9 +305,9 @@ class ExamMonitor:
         self.next_obj_id = 1
         self.obj_ids = []
         self.custom_ids = []
-        if obj_model is not None:
+        if obj_model is not None and hasattr(obj_model, "names"):
             self.obj_ids = [i for i, n in obj_model.names.items() if n in set(settings.prohibited)]
-        if custom_model is not None:
+        if custom_model is not None and hasattr(custom_model, "names"):
             self.custom_ids = [i for i, n in custom_model.names.items() if n in set(settings.custom_classes)]
 
     def _detect_people(self, frame, track):
@@ -323,9 +323,9 @@ class ExamMonitor:
         except Exception as exc:
             self.last_error = f"Pose model error: {exc}"
             return []
-        r = res[0]
-        if r.boxes is None or len(r.boxes) == 0:
+        if not res or res[0].boxes is None or len(res[0].boxes) == 0:
             return []
+        r = res[0]
         xyxy = r.boxes.xyxy.cpu().numpy()
         ids = (r.boxes.id.cpu().numpy().astype(int) if r.boxes.id is not None
                else np.arange(1, len(xyxy) + 1))
@@ -349,6 +349,8 @@ class ExamMonitor:
             res = model.predict(frame, imgsz=self.s.imgsz, conf=conf, classes=class_ids, verbose=False)
         except Exception as exc:
             self.last_error = f"{source} model error: {exc}"
+            return []
+        if not res or res[0].boxes is None:
             return []
         out = []
         for box in res[0].boxes:
@@ -470,13 +472,25 @@ class ExamMonitor:
 
 
 # ----------------------------------------------------------------------------
-# Cache & Source Loader
+# Cache & Safe Model Loader (Prevents Blank Screen / Crashes)
 # ----------------------------------------------------------------------------
 @st.cache_resource(show_spinner="Loading model...")
 def load_model(name, fallback=None):
     if not YOLO_AVAILABLE:
         return None, "ultralytics is not installed"
     err = None
+    for candidate in (name, fallback):
+        if not candidate:
+            continue
+        try:
+            if not candidate.endswith(".pt") or os.path.exists(candidate) or "/" in candidate or "\\" in candidate:
+                return YOLO(candidate), None
+            if os.path.exists(candidate):
+                return YOLO(candidate), None
+        except Exception as exc:
+            err = str(exc)
+    
+    # Try downloading/loading directly via YOLO if file doesn't exist locally
     for candidate in (name, fallback):
         if not candidate:
             continue
@@ -623,3 +637,49 @@ def analyze_video(source, source_name, monitor_args, perf):
 
         annotated, info = monitor.process(frame, frame_idx / fps, frame_idx, track=True)
         processed += 1
+        
+        latest_student_count = get_stable_student_count(info.get("persons", []))
+
+        if not perf.turbo and (processed % perf.preview_every == 0 or info["new"]):
+            frame_slot.image(annotated, channels="BGR", output_format="JPEG", use_container_width=True)
+            render_live(widgets, info, monitor, latest_student_count)
+        if total > 0 and processed % 5 == 0:
+            progress.progress(min(frame_idx / total, 1.0))
+
+        if perf.sound and info["new"] and time.time() - last_sound > 3:
+            sound_slot.markdown(alarm_html(), unsafe_allow_html=True)
+            last_sound = time.time()
+
+    cap.release()
+    progress.progress(1.0)
+    elapsed = max(time.time() - started, 1e-6)
+    status.success(f"Done in {elapsed:.1f}s - {processed} frames analyzed ({processed / elapsed:.1f} fps)")
+    return build_result(monitor, frame_idx, source_name, latest_student_count)
+
+
+def analyze_image(image, source_name, monitor_args):
+    monitor = ExamMonitor(*monitor_args)
+    annotated, info = monitor.process(image, 0.0, 1, track=False, instant=True)
+    st.image(annotated, channels="BGR", output_format="JPEG", use_container_width=True)
+    exact_count = get_stable_student_count(info.get("persons", []))
+    render_live({"metrics": st.empty(), "alerts": st.empty()}, info, monitor, exact_count)
+    return build_result(monitor, 1, source_name, exact_count)
+
+
+# ----------------------------------------------------------------------------
+# Comprehensive Analytics & Report
+# ----------------------------------------------------------------------------
+def show_report(result):
+    st.markdown("---")
+    st.header("📋 Comprehensive Exam Analytics & Incident Report")
+    st.caption(f"Source: {result['source']}  |  Total Students Detected: {result.get('total_students', 0)}  |  Finished: {result['finished']}")
+
+    events = result["events"]
+    if not events:
+        st.success("No incidents were recorded.")
+        return
+
+    df = pd.DataFrame(events)
+    df["student"] = df["student"].apply(lambda v: f"#{int(v)}" if pd.notna(v) else "Exam area")
+    df["start"] = df["start_sec"].apply(fmt_time)
+    df["severity_icon"] = df["severity"].
