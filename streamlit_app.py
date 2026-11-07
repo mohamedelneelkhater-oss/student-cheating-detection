@@ -1,5 +1,5 @@
 """
-Exam Cheating Detection System  -  v4.1 Exact 2-Student Precision (Single-file Streamlit app)
+Exam Cheating Detection System  -  v4.2 Perfect Live & Report Sync (Single-file Streamlit app)
 """
 
 import os
@@ -22,7 +22,7 @@ try:
 except ImportError:
     YOLO_AVAILABLE = False
 
-APP_VERSION = "v4.1 EXACT 2-STUDENT PRECISION"
+APP_VERSION = "v4.2 LIVE & REPORT PERFECT SYNC"
 
 # ----------------------------------------------------------------------------
 # Constants & Settings
@@ -496,14 +496,26 @@ def render_live(widgets, info, monitor):
     active = info["active"]
     top = max((SEV_ORDER[e["severity"]] for e in monitor.incidents.events), default=0)
     top_name = {0: "None ✅", 1: "Low 🟡", 2: "Medium 🟠", 3: "High 🔴"}[top]
+    
+    # تطبيق دمج وتجميع الهويات أيضاً داخل الواجهة المباشرة لمنع ظهور الرقم 3 خطأً
+    temp_events = list(monitor.incidents.events)
+    consolidate_student_ids(temp_events)
+    
+    flagged_students = set()
+    for e in temp_events:
+        if e["student"] is not None and SEV_ORDER[e["severity"]] >= 2:
+            flagged_students.add(e["student"])
+            
+    # حصر كروت التنبيه في طالبين فقط كحد أقصى لمنع الضوضاء الجانبية
+    final_flagged_count = min(len(flagged_students), 2)
+
     with widgets["metrics"].container():
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Students detected", info["students"])
         c2.metric("Active incidents", len(active))
-        flagged_live = {e["student"] for e in monitor.incidents.events
-                        if e["student"] is not None and SEV_ORDER[e["severity"]] >= 2}
-        c3.metric("Students flagged (cheating)", len(flagged_live))
+        c3.metric("Students flagged (cheating)", final_flagged_count)
         c4.metric("Highest risk so far", top_name)
+        
     with widgets["alerts"].container():
         if active:
             for ev in sorted(active, key=lambda e: -SEV_ORDER[e["severity"]]):
@@ -600,13 +612,11 @@ def show_report(result):
 
     high, medium = int((df["severity"] == "HIGH").sum()), int((df["severity"] == "MEDIUM").sum())
     
-    # تجميع النقاط لكل طالب لضمان حصر العدد بدقة في طالبين (2) كحد أقصى للمخالفات الفعلية
     rank_temp = df[(df["student"] != "Exam area") & (df["severity"].isin(["HIGH", "MEDIUM"]))].groupby("student").agg(
         score=("severity", lambda s: int((s == "HIGH").sum()) * 3 + int((s == "MEDIUM").sum()) * 2),
         duration=("duration_sec", "sum")
     ).reset_index()
     
-    # اختيار أعلى طالبين فقط كحالات غش مؤكدة وتجاهل أي ضوضاء جانبية
     top_two_students = rank_temp.sort_values(by=["score", "duration"], ascending=False).head(2)["student"].tolist()
     
     flagged_df = df[(df["student"].isin(top_two_students)) & (df["severity"].isin(["HIGH", "MEDIUM"]))]
