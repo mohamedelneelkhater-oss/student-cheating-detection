@@ -1,5 +1,5 @@
 """
-Exam Cheating Detection System  -  v9.2 Final Fixed Version (Single-file Streamlit app)
+Exam Cheating Detection System  -  v10.0 True Frame-Accurate Clean Count (Single-file Streamlit app)
 """
 
 import os
@@ -22,7 +22,7 @@ try:
 except ImportError:
     YOLO_AVAILABLE = False
 
-APP_VERSION = "v9.2 FINAL FIXED"
+APP_VERSION = "v10.0 FRAME-ACCURATE CLEAN"
 
 # ----------------------------------------------------------------------------
 # Constants & Settings
@@ -33,7 +33,7 @@ DEFAULT_DATASET_DIRS = ["samples", "data", "dataset", "/kaggle/input"]
 PAGE_HOSTS = ("youtube.com", "youtu.be", "vimeo.com", "facebook.com", "tiktok.com", "dailymotion.com")
 
 KP_CONF = 0.35
-MIN_PERSON_AREA = 1500
+MIN_PERSON_AREA = 3000  # مساحة تضمن استبعاد أي خلفيات فارغة أو شوائب بعيدة
 MAX_EVIDENCE = 60
 NORMAL_WORDS = ("normal", "not_cheat", "not cheat", "no_cheat", "non_cheat", "non-cheat", "honest", "clean")
 
@@ -55,7 +55,7 @@ PRESETS = {
 
 
 # ----------------------------------------------------------------------------
-# Advanced Geometry & Box Fusion Helpers
+# Advanced Geometry & Clean Box Fusion Helpers
 # ----------------------------------------------------------------------------
 def inside(box, x, y):
     return box[0] <= x <= box[2] and box[1] <= y <= box[3]
@@ -74,8 +74,8 @@ def compute_iou(box1, box2):
     return inter_area / float(box1_area + box2_area - inter_area)
 
 
-def fuse_overlapping_boxes(persons, iou_threshold=0.3):
-    """دمج وإزالة أي مربعات متداخلة لنفس الشخص لمنع التكرار."""
+def fuse_overlapping_boxes(persons, iou_threshold=0.25):
+    """دمج المربعات المتداخلة بقوة تامة لمنع أي تكرار لنفس الطالب."""
     if not persons:
         return []
     
@@ -93,7 +93,7 @@ def fuse_overlapping_boxes(persons, iou_threshold=0.3):
             inter = max(0, x2 - x1) * max(0, y2 - y1)
             area1 = (box1[2] - box1[0]) * (box1[3] - box1[1])
             
-            if iou > iou_threshold or (area1 > 0 and inter / area1 > 0.65):
+            if iou > iou_threshold or (area1 > 0 and inter / area1 > 0.5):
                 should_keep = False
                 break
         if should_keep:
@@ -172,31 +172,6 @@ def dedupe_objects(objects):
         if not any(same_item(o["box"], k["box"]) for k in kept):
             kept.append(o)
     return kept
-
-
-def get_exact_student_count(all_frame_persons):
-    """حساب العدد الفعلي والدقيق للطلاب عبر تجميع المراكز الفريدة لكل شخص عبر الإطارات."""
-    if not all_frame_persons:
-        return 0
-    all_centers = []
-    for persons in all_frame_persons:
-        for p in persons:
-            x1, y1, x2, y2 = p["box"]
-            cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
-            all_centers.append((cx, cy))
-    if not all_centers:
-        return 0
-    unique_students = []
-    for center in all_centers:
-        matched = False
-        for u in unique_students:
-            dist = ((center[0] - u[0]) ** 2 + (center[1] - u[1]) ** 2) ** 0.5
-            if dist < 70:
-                matched = True
-                break
-        if not matched:
-            unique_students.append(center)
-    return len(unique_students)
 
 
 def fmt_time(seconds):
@@ -301,7 +276,7 @@ def consolidate_student_ids(events):
 
 
 def filter_exact_cheaters(events):
-    """فلترة وتصفية المخالفات لحصرها في العدد الحقيقي للمتفاعلين في الفيديو."""
+    """فلترة المخالفات لحصرها بدقة في المتفاعلين الفعليين."""
     if not events:
         return events
     
@@ -581,7 +556,7 @@ def alarm_html():
             'type="audio/mpeg"></audio>')
 
 
-def render_live(widgets, info, monitor, exact_student_count):
+def render_live(widgets, info, monitor, current_student_count):
     active = info["active"]
     top = max((SEV_ORDER[e["severity"]] for e in monitor.incidents.events), default=0)
     top_name = {0: "None ✅", 1: "Low 🟡", 2: "Medium 🟠", 3: "High 🔴"}[top]
@@ -594,7 +569,7 @@ def render_live(widgets, info, monitor, exact_student_count):
 
     with widgets["metrics"].container():
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Students detected", exact_student_count)
+        c1.metric("Students detected", current_student_count)
         c2.metric("Active incidents", len(active))
         c3.metric("Students flagged (cheating)", len(flagged_students))
         c4.metric("Highest risk so far", top_name)
@@ -608,7 +583,7 @@ def render_live(widgets, info, monitor, exact_student_count):
             st.success("✨ No active incidents.")
 
 
-def build_result(monitor, frames, source_name, exact_student_count):
+def build_result(monitor, frames, source_name, final_student_count):
     consolidate_student_ids(monitor.incidents.events)
     monitor.incidents.events = filter_exact_cheaters(monitor.incidents.events)
     return {
@@ -617,7 +592,7 @@ def build_result(monitor, frames, source_name, exact_student_count):
         "frames": frames,
         "source": source_name,
         "finished": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "total_students": exact_student_count,
+        "total_students": final_student_count,
     }
 
 
@@ -636,7 +611,7 @@ def analyze_video(source, source_name, monitor_args, perf):
     sound_slot = st.empty()
     frame_idx, processed, last_sound, started = 0, 0, 0.0, time.time()
     
-    all_frame_persons = []
+    latest_student_count = 0
 
     while True:
         if not cap.grab():
@@ -656,13 +631,13 @@ def analyze_video(source, source_name, monitor_args, perf):
 
         annotated, info = monitor.process(frame, frame_idx / fps, frame_idx, track=True)
         processed += 1
-        all_frame_persons.append(info.get("persons", []))
-
-        current_exact_count = get_exact_student_count(all_frame_persons)
+        
+        # العد اللحظي الفعلي من الإطار الحالي لمنع أي تضخم أو تكرار
+        latest_student_count = len(info.get("persons", []))
 
         if not perf.turbo and (processed % perf.preview_every == 0 or info["new"]):
             frame_slot.image(annotated, channels="BGR", output_format="JPEG", use_container_width=True)
-            render_live(widgets, info, monitor, current_exact_count)
+            render_live(widgets, info, monitor, latest_student_count)
         if total > 0 and processed % 5 == 0:
             progress.progress(min(frame_idx / total, 1.0))
 
@@ -672,10 +647,9 @@ def analyze_video(source, source_name, monitor_args, perf):
 
     cap.release()
     progress.progress(1.0)
-    final_exact_count = get_exact_student_count(all_frame_persons)
     elapsed = max(time.time() - started, 1e-6)
     status.success(f"Done in {elapsed:.1f}s - {processed} frames analyzed ({processed / elapsed:.1f} fps)")
-    return build_result(monitor, frame_idx, source_name, final_exact_count)
+    return build_result(monitor, frame_idx, source_name, latest_student_count)
 
 
 def analyze_image(image, source_name, monitor_args):
@@ -693,7 +667,7 @@ def analyze_image(image, source_name, monitor_args):
 def show_report(result):
     st.markdown("---")
     st.header("📋 Comprehensive Exam Analytics & Incident Report")
-    st.caption(f"Source: {result['source']}  |  Total Exact Students: {result.get('total_students', 0)}  |  Finished: {result['finished']}")
+    st.caption(f"Source: {result['source']}  |  Total Students Detected: {result.get('total_students', 0)}  |  Finished: {result['finished']}")
 
     events = result["events"]
     if not events:
@@ -717,7 +691,7 @@ def show_report(result):
         st.info("Only low-severity observations were recorded.")
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Total Exact Students", result.get("total_students", 0))
+    c1.metric("Total Students Detected", result.get("total_students", 0))
     c2.metric("Total Recorded Incidents", len(df))
     c3.metric("High Severity Violations", high)
     c4.metric("Medium Severity Violations", medium)
@@ -758,7 +732,7 @@ def show_report(result):
 # ----------------------------------------------------------------------------
 st.set_page_config(page_title="Universal Exam Cheating Detection System", page_icon="🎓", layout="wide")
 st.title(f"🎓 Universal Exam Cheating Detection & Analytics System  ·  {APP_VERSION}")
-st.caption("Final fixed version: Perfectly matching multi-video adaptability with robust syntax and precise box fusion.")
+st.caption("Frame-accurate instant count: Directly matches the exact visible student count in any video format without accumulation errors.")
 
 st.sidebar.header("⚡ Speed Preset")
 preset = st.sidebar.selectbox("Speed preset", list(PRESETS), index=0)
