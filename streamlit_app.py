@@ -1,5 +1,5 @@
 """
-Exam Cheating Detection & Analytics System  -  v21.0 Turbo-Fast & ASCII-Safe (Single-file Streamlit app)
+Exam Cheating Detection & Analytics System  -  v22.0 Instant Short-Video Pro (Single-file Streamlit app)
 """
 
 import os
@@ -22,7 +22,7 @@ try:
 except ImportError:
     YOLO_AVAILABLE = False
 
-APP_VERSION = "v21.0 TURBO-FAST"
+APP_VERSION = "v22.0 INSTANT SHORT-VIDEO PRO"
 
 # ----------------------------------------------------------------------------
 # Constants & Settings
@@ -47,11 +47,10 @@ SEV_ORDER = {"NONE": 0, "LOW": 1, "MEDIUM": 2, "HIGH": 3}
 SEV_COLOR = {"NONE": (0, 200, 0), "LOW": (0, 220, 255), "MEDIUM": (0, 165, 255), "HIGH": (0, 0, 255)}
 SEV_ICON = {"LOW": "LOW", "MEDIUM": "MED", "HIGH": "HIGH"}
 
-# إعدادات السرعة القصوى المحدثة لتسريع الزر فوراً
 PRESETS = {
-    "Fast": dict(imgsz=480, frame_skip=10, object_every=5, max_width=480, preview_every=1),
-    "Balanced": dict(imgsz=800, frame_skip=3, object_every=2, max_width=960, preview_every=3),
-    "Accurate": dict(imgsz=960, frame_skip=2, object_every=1, max_width=1280, preview_every=2),
+    "Fast": dict(imgsz=480, frame_skip=2, object_every=1, max_width=640, preview_every=1),
+    "Balanced": dict(imgsz=640, frame_skip=1, object_every=1, max_width=960, preview_every=1),
+    "Accurate": dict(imgsz=800, frame_skip=1, object_every=1, max_width=1280, preview_every=1),
 }
 
 
@@ -411,7 +410,7 @@ class ExamMonitor:
                     conditions[("head", sid)] = dict(
                         student=sid, severity="MEDIUM", category="Head turn",
                         label=f"Head turned {direction} (looking away)", 
-                        min_sec=s.head_seconds + 0.5, box=p["box"])
+                        min_sec=s.head_seconds, box=p["box"])
 
         for o in objects:
             owner = assign_owner(o["box"], persons)
@@ -722,7 +721,7 @@ def show_report(result):
 # ----------------------------------------------------------------------------
 st.set_page_config(page_title="Universal Exam Cheating Detection System", page_icon="🎓", layout="wide")
 st.title(f"Universal Exam Cheating Detection & Analytics System - {APP_VERSION}")
-st.caption("Turbo-Fast Version: Optimized frame skipping and reduced resolution for instant analysis.")
+st.caption("Instant Short-Video Pro: Optimized for immediate detection in short clips with multi-student tracking.")
 
 st.sidebar.header("Speed Preset")
 preset = st.sidebar.selectbox("Speed preset", list(PRESETS), index=0)
@@ -767,20 +766,20 @@ st.sidebar.header("Detection rules")
 person_conf = st.sidebar.slider("Student confidence", 0.10, 0.90, 0.35, 0.05)
 object_conf = st.sidebar.slider("Generic item confidence", 0.10, 0.90, 0.30, 0.05)
 custom_conf = st.sidebar.slider("Trained model confidence", 0.10, 0.90, 0.35, 0.05)
-yaw_threshold = st.sidebar.slider("Head-turn threshold", 0.10, 0.80, 0.30, 0.05)
-head_seconds = st.sidebar.slider("Head turn must last (sec)", 0.0, 5.0, 1.0, 0.5)
-object_seconds = st.sidebar.slider("Item visible for (sec)", 0.0, 5.0, 0.5, 0.5)
+yaw_threshold = st.sidebar.slider("Head-turn threshold", 0.10, 0.80, 0.25, 0.05)
+head_seconds = st.sidebar.slider("Head turn must last (sec)", 0.0, 5.0, 0.1, 0.1)     # معدل ليكون فورياً للفيديوهات القصيرة
+object_seconds = st.sidebar.slider("Item visible for (sec)", 0.0, 5.0, 0.1, 0.1)     # معدل ليكون فورياً
 neighbor_reach = st.sidebar.slider("Neighbor reach", 1.0, 6.0, 2.5, 0.5)
 prohibited = st.sidebar.multiselect("Prohibited items", list(OBJECT_INFO), default=list(OBJECT_INFO))
 check_head = st.sidebar.checkbox("Detect head turn / looking at neighbor", value=True)
 show_debug = st.sidebar.checkbox("Show debug values", value=False)
 
 st.sidebar.header("Performance")
-frame_skip = st.sidebar.slider("Process every Nth frame", 1, 30, PS["frame_skip"])
-object_every = st.sidebar.slider("Run item detectors every Nth frame", 1, 10, PS["object_every"])
+frame_skip = st.sidebar.slider("Process every Nth frame", 1, 10, PS["frame_skip"])
+object_every = st.sidebar.slider("Run item detectors every Nth frame", 1, 5, PS["object_every"])
 max_width = st.sidebar.select_slider("Max frame width", options=[320, 480, 640, 960, 1280], value=PS["max_width"])
 turbo = st.sidebar.checkbox("Turbo mode (no live video)", value=False)
-preview_every = st.sidebar.slider("Live preview every Nth frame", 1, 30, PS["preview_every"])
+preview_every = st.sidebar.slider("Live preview every Nth frame", 1, 10, PS["preview_every"])
 max_seconds = st.sidebar.number_input("Analyze first N seconds (0 = all)", min_value=0, value=0, step=10)
 sound_on = st.sidebar.checkbox("Alarm sound", value=True)
 perf = Settings(frame_skip=frame_skip, max_width=max_width, turbo=turbo, preview_every=preview_every,
