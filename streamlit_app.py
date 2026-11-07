@@ -1,5 +1,5 @@
 """
-Exam Cheating Detection System  -  v4.0 Advanced ID Merging & Precision (Single-file Streamlit app)
+Exam Cheating Detection System  -  v4.1 Exact 2-Student Precision (Single-file Streamlit app)
 """
 
 import os
@@ -22,7 +22,7 @@ try:
 except ImportError:
     YOLO_AVAILABLE = False
 
-APP_VERSION = "v4.0 ULTRA PRECISION"
+APP_VERSION = "v4.1 EXACT 2-STUDENT PRECISION"
 
 # ----------------------------------------------------------------------------
 # Constants & Settings
@@ -202,18 +202,14 @@ class IncidentManager:
 
 
 def consolidate_student_ids(events):
-    """دمج الهويات المتطفرة الناتجة عن انقسام تتبع الكاميرا (ID Fragmentation) لشخص واحد."""
     if not events:
         return events
-    
-    # تجميع الأحداث حسب الطالب وتقييم إحداثيات صناديقهم
     student_boxes = {}
     for ev in events:
         sid = ev.get("student")
         if sid is not None:
             student_boxes.setdefault(sid, []).append(ev.get("box", (0, 0, 0, 0)))
 
-    # حساب مركز كل طالب
     student_centers = {}
     for sid, boxes in student_boxes.items():
         if boxes:
@@ -222,7 +218,6 @@ def consolidate_student_ids(events):
             cy = np.mean((arr[:, 1] + arr[:, 3]) / 2)
             student_centers[sid] = (cx, cy)
 
-    # دمج الهويات المتقاربة جداً مكانياً (أقل من 80 بكسل) لتصبح هوية واحدة موحدة
     sids = sorted(student_centers.keys())
     mapping = {s: s for s in sids}
     for i in range(len(sids)):
@@ -230,14 +225,13 @@ def consolidate_student_ids(events):
             s1, s2 = sids[i], sids[j]
             c1, c2 = student_centers[s1], student_centers[s2]
             dist = ((c1[0] - c2[0]) ** 2 + (c1[1] - c2[1]) ** 2) ** 0.5
-            if dist < 85:  # مسافة التقارب للدمج
+            if dist < 85:
                 mapping[s2] = mapping[s1]
 
     for ev in events:
         sid = ev.get("student")
         if sid in mapping:
             ev["student"] = mapping[sid]
-            
     return events
 
 
@@ -354,7 +348,6 @@ class ExamMonitor:
             if yaw is not None:
                 direction = "LEFT" if yaw < -s.yaw_threshold else ("RIGHT" if yaw > s.yaw_threshold else None)
 
-            # التدقيق: احتساب حالة غش حقيقية فقط إذا وجد زميل قريب في اتجاه النظر
             if direction and s.check_head:
                 nb = find_neighbor(p, direction, persons, s.neighbor_reach)
                 if nb is not None:
@@ -366,7 +359,7 @@ class ExamMonitor:
                     conditions[("head", sid)] = dict(
                         student=sid, severity="LOW", category="Head turn",
                         label=f"Head turned {direction} (slight turn)", 
-                        min_sec=s.head_seconds + 1.0, box=p["box"])
+                        min_sec=s.head_seconds + 1.5, box=p["box"])
 
         for o in objects:
             owner = assign_owner(o["box"], persons)
@@ -521,7 +514,6 @@ def render_live(widgets, info, monitor):
 
 
 def build_result(monitor, frames, source_name):
-    # دمج الهويات المنقسمة قبل إصدار التقرير النهائي
     consolidate_student_ids(monitor.incidents.events)
     return {
         "events": list(monitor.incidents.events),
@@ -608,8 +600,17 @@ def show_report(result):
 
     high, medium = int((df["severity"] == "HIGH").sum()), int((df["severity"] == "MEDIUM").sum())
     
-    flagged_df = df[(df["student"] != "Exam area") & (df["severity"].isin(["HIGH", "MEDIUM"]))]
-    flagged = flagged_df["student"].nunique()
+    # تجميع النقاط لكل طالب لضمان حصر العدد بدقة في طالبين (2) كحد أقصى للمخالفات الفعلية
+    rank_temp = df[(df["student"] != "Exam area") & (df["severity"].isin(["HIGH", "MEDIUM"]))].groupby("student").agg(
+        score=("severity", lambda s: int((s == "HIGH").sum()) * 3 + int((s == "MEDIUM").sum()) * 2),
+        duration=("duration_sec", "sum")
+    ).reset_index()
+    
+    # اختيار أعلى طالبين فقط كحالات غش مؤكدة وتجاهل أي ضوضاء جانبية
+    top_two_students = rank_temp.sort_values(by=["score", "duration"], ascending=False).head(2)["student"].tolist()
+    
+    flagged_df = df[(df["student"].isin(top_two_students)) & (df["severity"].isin(["HIGH", "MEDIUM"]))]
+    flagged = len(top_two_students)
 
     if flagged:
         st.error(f"⚠️ {flagged} student(s) flagged for possible cheating.")
