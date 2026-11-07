@@ -1,5 +1,5 @@
 """
-Exam Cheating Detection & Analytics System  -  v15.0 Multi-Student Pro (Single-file Streamlit app)
+Exam Cheating Detection & Analytics System  -  v16.0 Final Perfect & Indentation-Fixed (Single-file Streamlit app)
 """
 
 import os
@@ -22,7 +22,7 @@ try:
 except ImportError:
     YOLO_AVAILABLE = False
 
-APP_VERSION = "v15.0 MULTI-STUDENT PRO"
+APP_VERSION = "v16.0 FINAL PERFECT"
 
 # ----------------------------------------------------------------------------
 # Constants & Settings
@@ -33,7 +33,7 @@ DEFAULT_DATASET_DIRS = ["samples", "data", "dataset", "/kaggle/input"]
 PAGE_HOSTS = ("youtube.com", "youtu.be", "vimeo.com", "facebook.com", "tiktok.com", "dailymotion.com")
 
 KP_CONF = 0.35
-MIN_PERSON_AREA = 700   # مساحة مثالية لضمان رصد جميع الطلاب في الصفوف الأمامية والخلفية
+MIN_PERSON_AREA = 700   
 MAX_EVIDENCE = 60
 NORMAL_WORDS = ("normal", "not_cheat", "not cheat", "no_cheat", "non_cheat", "non-cheat", "honest", "clean")
 
@@ -281,7 +281,6 @@ def consolidate_student_ids(events):
 
 
 def filter_exact_cheaters(events):
-    # تم تعديل هذه الدالة للإبقاء على جميع الطلاب الذين ارتكبوا مخالفات حقيقية وعدم حذف أي منهم
     return events
 
 
@@ -403,3 +402,224 @@ class ExamMonitor:
                 direction = "LEFT" if yaw < -s.yaw_threshold else ("RIGHT" if yaw > s.yaw_threshold else None)
 
             if direction and s.check_head:
+                nb = find_neighbor(p, direction, persons, s.neighbor_reach)
+                if nb is not None:
+                    conditions[("head", sid)] = dict(
+                        student=sid, severity="HIGH", category="Copying from neighbor",
+                        label=f"Looking {direction} at Student #{nb} (possible copying/passing notes)", 
+                        min_sec=s.head_seconds, box=p["box"])
+                else:
+                    conditions[("head", sid)] = dict(
+                        student=sid, severity="MEDIUM", category="Head turn",
+                        label=f"Head turned {direction} (looking away)", 
+                        min_sec=s.head_seconds + 0.5, box=p["box"])
+
+        for o in objects:
+            owner = assign_owner(o["box"], persons)
+            where = f"Student #{owner}" if owner is not None else "the exam area"
+            o["owner"] = owner
+            if o["source"] == "coco":
+                label, sev = OBJECT_INFO.get(o["name"], ("Prohibited item", "HIGH"))
+                category = "Prohibited item"
+                text = f"{label} near {where}"
+            else:
+                label, sev, category = o["name"], "HIGH", "Trained-model detection"
+                text = f"{o['name']} (trained model) near {where}"
+            o["label"] = label
+            conditions[("obj", o["track"])] = dict(
+                student=owner, severity=sev, category=category, label=text,
+                min_sec=s.object_seconds, grace=4.0, box=o["box"])
+
+        if instant:
+            for c in conditions.values():
+                c["min_sec"] = 0.0
+
+        new_events, active = self.incidents.update(t, conditions, frame_idx)
+
+        sev_by_student = {}
+        for ev in active:
+            if ev["student"] is not None and SEV_ORDER[ev["severity"]] > SEV_ORDER[sev_by_student.get(ev["student"], "NONE")]:
+                sev_by_student[ev["student"]] = ev["severity"]
+
+        annotated = self._annotate(frame, persons, objects, sev_by_student, yaw_map)
+        for ev in new_events:
+            self.incidents.attach_evidence(ev, annotated)
+        return annotated, {"students": len(persons), "active": active, "new": new_events, "persons": persons}
+
+    def _annotate(self, frame, persons, objects, sev_by_student, yaw_map):
+        out = frame.copy()
+        scale = max(0.5, out.shape[1] / 1280 * 0.7)
+        th = max(2, int(scale * 3))
+        for p in persons:
+            sid = p["id"]
+            sev = sev_by_student.get(sid, "NONE")
+            color = SEV_COLOR[sev]
+            x1, y1, x2, y2 = [int(v) for v in p["box"]]
+            cv2.rectangle(out, (x1, y1), (x2, y2), color, th if sev != "NONE" else 2)
+            text = f"#{sid}" + (f" {sev}" if sev != "NONE" else "")
+            if self.s.show_debug and yaw_map.get(sid) is not None:
+                text += f"  yaw {yaw_map[sid]:+.2f}"
+            cv2.putText(out, text, (x1, max(y1 - 8, 15)), cv2.FONT_HERSHEY_SIMPLEX, scale, color, th)
+        for o in objects:
+            x1, y1, x2, y2 = [int(v) for v in o["box"]]
+            cv2.rectangle(out, (x1, y1), (x2, y2), (0, 0, 255), th)
+            owner = f" -> #{o['owner']}" if o["owner"] is not None else ""
+            cv2.putText(out, f"{o['label']} {o['conf']:.2f}{owner}", (x1, max(y1 - 8, 15)),
+                        cv2.FONT_HERSHEY_SIMPLEX, scale, (0, 0, 255), th)
+        return out
+
+
+# ----------------------------------------------------------------------------
+# Cache & Source Loader
+# ----------------------------------------------------------------------------
+@st.cache_resource(show_spinner="Loading model...")
+def load_model(name, fallback=None):
+    if not YOLO_AVAILABLE:
+        return None, "ultralytics is not installed"
+    err = None
+    for candidate in (name, fallback):
+        if not candidate:
+            continue
+        try:
+            return YOLO(candidate), None
+        except Exception as exc:
+            err = str(exc)
+    return None, err
+
+
+@st.cache_data(show_spinner=False)
+def find_dataset_files(search_dirs):
+    videos, images = [], []
+    for directory in search_dirs:
+        root = Path(directory.strip())
+        if root.exists() and root.is_dir():
+            for path in root.rglob("*"):
+                ext = path.suffix.lower()
+                if ext in VIDEO_EXTENSIONS:
+                    videos.append(str(path))
+                elif ext in IMAGE_EXTENSIONS:
+                    images.append(str(path))
+    return sorted(set(videos)), sorted(set(images))
+
+
+def resolve_url(url):
+    url = url.strip()
+    lower = url.lower().split("?")[0]
+    if lower.endswith(tuple(VIDEO_EXTENSIONS)) and not any(h in url for h in PAGE_HOSTS):
+        cap = cv2.VideoCapture(url)
+        ok = cap.isOpened()
+        cap.release()
+        if ok:
+            return url, None, None
+        tmp = tempfile.mkdtemp()
+        try:
+            path = os.path.join(tmp, "video" + Path(lower).suffix)
+            urllib.request.urlretrieve(url, path)
+            return path, tmp, None
+        except Exception as exc:
+            shutil.rmtree(tmp, ignore_errors=True)
+            return None, None, f"Could not open link: {exc}"
+
+    tmp = tempfile.mkdtemp()
+    try:
+        import yt_dlp
+        opts = {
+            "format": "best[height<=720][ext=mp4]/best",
+            "outtmpl": os.path.join(tmp, "video.%(ext)s"),
+            "quiet": True, "noplaylist": True,
+        }
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            return ydl.prepare_filename(info), tmp, None
+    except Exception as exc:
+        shutil.rmtree(tmp, ignore_errors=True)
+        return None, None, f"Could not download link ({exc})."
+
+
+# ----------------------------------------------------------------------------
+# UI Rendering & Live Metrics
+# ----------------------------------------------------------------------------
+def alarm_html():
+    t_val = time.time()
+    return f"""
+    <audio autoplay data-t="{t_val}">
+        <source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" type="audio/mpeg">
+    </audio>
+    """
+
+
+def render_live(widgets, info, monitor, current_student_count):
+    active = info["active"]
+    top = max((SEV_ORDER[e["severity"]] for e in monitor.incidents.events), default=0)
+    top_name = {0: "None ✅", 1: "Low 🟡", 2: "Medium 🟠", 3: "High 🔴"}[top]
+    
+    temp_events = list(monitor.incidents.events)
+    consolidate_student_ids(temp_events)
+    temp_events = filter_exact_cheaters(temp_events)
+    
+    flagged_students = {e["student"] for e in temp_events if e["student"] is not None and SEV_ORDER[e["severity"]] >= 2}
+
+    with widgets["metrics"].container():
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Students detected", current_student_count)
+        c2.metric("Active incidents", len(active))
+        c3.metric("Students flagged (cheating)", len(flagged_students))
+        c4.metric("Highest risk so far", top_name)
+        
+    with widgets["alerts"].container():
+        if active:
+            for ev in sorted(active, key=lambda e: -SEV_ORDER[e["severity"]]):
+                who = f"Student #{ev['student']}" if ev["student"] is not None else "Exam area"
+                st.error(f"{SEV_ICON[ev['severity']]} **{who}** - {ev['event']}")
+        else:
+            st.success("✨ No active incidents.")
+
+
+def build_result(monitor, frames, source_name, final_student_count):
+    consolidate_student_ids(monitor.incidents.events)
+    monitor.incidents.events = filter_exact_cheaters(monitor.incidents.events)
+    return {
+        "events": list(monitor.incidents.events),
+        "evidence": list(monitor.incidents.evidence),
+        "frames": frames,
+        "source": source_name,
+        "finished": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "total_students": final_student_count,
+    }
+
+
+def analyze_video(source, source_name, monitor_args, perf):
+    cap = cv2.VideoCapture(source)
+    if not cap.isOpened():
+        st.error("Could not open video.")
+        return None
+
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+    fps = cap.get(cv2.CAP_PROP_FPS) or 25
+    max_frames = int(perf.max_seconds * fps) if perf.max_seconds else 0
+    monitor = ExamMonitor(*monitor_args)
+    frame_slot, progress, status = st.empty(), st.progress(0.0), st.empty()
+    widgets = {"metrics": st.empty(), "alerts": st.empty()}
+    sound_slot = st.empty()
+    frame_idx, processed, last_sound, started = 0, 0, 0.0, time.time()
+    
+    latest_student_count = 0
+
+    while True:
+        if not cap.grab():
+            break
+        frame_idx += 1
+        if max_frames and frame_idx > max_frames:
+            break
+        if frame_idx % perf.frame_skip:
+            continue
+        ok, frame = cap.retrieve()
+        if not ok:
+            break
+
+        h, w = frame.shape[:2]
+        if w > perf.max_width:
+            frame = cv2.resize(frame, (perf.max_width, int(h * perf.max_width / w)), interpolation=cv2.INTER_AREA)
+
+        annotated, info = monitor.process(frame, frame_idx / fps, frame_idx, track=True)
+        processed += 1
