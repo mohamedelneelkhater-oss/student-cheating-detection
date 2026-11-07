@@ -1,5 +1,5 @@
 """
-Exam Cheating Detection System  -  v4.4 Universal 2-Person Link & Analytics (Single-file Streamlit app)
+Exam Cheating Detection System  -  v4.6 Advanced Universal Behavioral Analytics (Single-file Streamlit app)
 """
 
 import os
@@ -22,7 +22,7 @@ try:
 except ImportError:
     YOLO_AVAILABLE = False
 
-APP_VERSION = "v4.4 UNIVERSAL SMART LINK"
+APP_VERSION = "v4.6 UNIVERSAL BEHAVIORAL ANALYTICS"
 
 # ----------------------------------------------------------------------------
 # Constants & Settings
@@ -32,8 +32,8 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 DEFAULT_DATASET_DIRS = ["samples", "data", "dataset", "/kaggle/input"]
 PAGE_HOSTS = ("youtube.com", "youtu.be", "vimeo.com", "facebook.com", "tiktok.com", "dailymotion.com")
 
-KP_CONF = 0.40
-MIN_PERSON_AREA = 1800
+KP_CONF = 0.35
+MIN_PERSON_AREA = 1500
 MAX_EVIDENCE = 60
 NORMAL_WORDS = ("normal", "not_cheat", "not cheat", "no_cheat", "non_cheat", "non-cheat", "honest", "clean")
 
@@ -55,7 +55,7 @@ PRESETS = {
 
 
 # ----------------------------------------------------------------------------
-# Geometry & Dynamic Helpers
+# Geometry & Behavioral Helpers
 # ----------------------------------------------------------------------------
 def inside(box, x, y):
     return box[0] <= x <= box[2] and box[1] <= y <= box[3]
@@ -96,7 +96,7 @@ def find_neighbor(person, direction, persons, reach):
         dy = (oy1 + oy2) / 2 - cy
         if (direction == "LEFT" and dx >= 0) or (direction == "RIGHT" and dx <= 0):
             continue
-        if abs(dx) > reach * w or abs(dy) > 0.8 * h:
+        if abs(dx) > reach * w or abs(dy) > 1.0 * h:
             continue
         if best is None or abs(dx) < best[1]:
             best = (o["id"], abs(dx))
@@ -109,7 +109,7 @@ def assign_owner(obj_box, persons):
     for p in persons:
         x1, y1, x2, y2 = p["box"]
         d = (((x1 + x2) / 2 - cx) ** 2 + ((y1 + y2) / 2 - cy) ** 2) ** 0.5
-        if inside(p["box"], cx, cy) or d < (x2 - x1) * 1.2:
+        if inside(p["box"], cx, cy) or d < (x2 - x1) * 1.5:
             if best_d is None or d < best_d:
                 best, best_d = p["id"], d
     return best
@@ -140,10 +140,10 @@ def fmt_time(seconds):
 
 
 # ----------------------------------------------------------------------------
-# Incident Manager & Smart Partner Linking
+# Incident Manager & Behavioral Consolidation
 # ----------------------------------------------------------------------------
 class IncidentManager:
-    def __init__(self, grace=1.2):
+    def __init__(self, grace=1.5):
         self.grace = grace
         self.state = {}
         self.events = []
@@ -202,6 +202,7 @@ class IncidentManager:
 
 
 def consolidate_student_ids(events):
+    """دمج الهويات المتطفرة الناتجة عن تتبع الكاميرا ديناميكياً."""
     if not events:
         return events
     student_boxes = {}
@@ -225,7 +226,7 @@ def consolidate_student_ids(events):
             s1, s2 = sids[i], sids[j]
             c1, c2 = student_centers[s1], student_centers[s2]
             dist = ((c1[0] - c2[0]) ** 2 + (c1[1] - c2[1]) ** 2) ** 0.5
-            if dist < 90:
+            if dist < 100:
                 mapping[s2] = mapping[s1]
 
     for ev in events:
@@ -353,7 +354,7 @@ class ExamMonitor:
                 if nb is not None:
                     conditions[("head", sid)] = dict(
                         student=sid, severity="HIGH", category="Copying from neighbor",
-                        label=f"Looking {direction} at Student #{nb} (possible copying)", 
+                        label=f"Looking {direction} at Student #{nb} (possible copying/passing notes)", 
                         min_sec=s.head_seconds, box=p["box"])
                 else:
                     conditions[("head", sid)] = dict(
@@ -377,18 +378,21 @@ class ExamMonitor:
                 student=owner, severity=sev, category=category, label=text,
                 min_sec=s.object_seconds, grace=4.0, box=o["box"])
 
-        # ذكاء إضافي عالمي: إذا كان الفيديو يحتوي على طالبين فقط وتم رصد غش/التفات من أحدهما، يتم تلقائياً ربط الطالب الآخر بالحدث ليكونا معاً طرفي الغش
-        if len(persons) == 2 and any(k[0] == "head" for k in conditions.keys()):
-            p_ids = [p["id"] for p in persons]
-            active_sid = list(conditions.values())[0]["student"]
-            other_sid = [pid for pid in p_ids if pid != active_sid]
-            if other_sid:
-                osid = other_sid[0]
-                other_p = next(p for p in persons if p["id"] == osid)
-                conditions[("head_partner", osid)] = dict(
-                    student=osid, severity="HIGH", category="Copying from neighbor",
-                    label=f"Involved in note/paper exchange with Student #{active_sid}",
-                    min_sec=0.2, box=other_p["box"])
+        # تحليل سلوكي ذكي تفاعلي لأي فيديو: إذا حدث تبادل أو تفاعل بين طالبين متقاربين، يتم ضم الشريكين معاً
+        active_head_students = [c["student"] for k, c in conditions.items() if k[0] == "head" and c["student"] is not None]
+        if active_head_students and len(persons) >= 2:
+            for active_sid in active_head_students:
+                active_p = next((p for p in persons if p["id"] == active_sid), None)
+                if active_p:
+                    # العثور على أقرب جار له في حدود نطاق التفاعل
+                    neighbor_id = find_neighbor(active_p, "LEFT" if yaw_map.get(active_sid, 0) < 0 else "RIGHT", persons, s.neighbor_reach)
+                    if neighbor_id is not None:
+                        neighbor_p = next((p for p in persons if p["id"] == neighbor_id), None)
+                        if neighbor_p and ("head", neighbor_id) not in conditions:
+                            conditions[("head_partner", neighbor_id)] = dict(
+                                student=neighbor_id, severity="HIGH", category="Copying from neighbor",
+                                label=f"Involved in note/paper exchange with Student #{active_sid}",
+                                min_sec=0.2, box=neighbor_p["box"])
 
         if instant:
             for c in conditions.values():
@@ -497,7 +501,7 @@ def resolve_url(url):
 
 
 # ----------------------------------------------------------------------------
-# UI Rendering & Dynamic Metrics
+# UI Rendering & Dynamic Analytics Metrics
 # ----------------------------------------------------------------------------
 def alarm_html():
     return (f'<audio autoplay data-t="{time.time()}">'
@@ -602,7 +606,7 @@ def analyze_image(image, source_name, monitor_args):
 
 
 # ----------------------------------------------------------------------------
-# Comprehensive Analytics & Report
+# Comprehensive Excel-like Analytics & Report
 # ----------------------------------------------------------------------------
 def show_report(result):
     st.markdown("---")
@@ -622,7 +626,7 @@ def show_report(result):
     high, medium = int((df["severity"] == "HIGH").sum()), int((df["severity"] == "MEDIUM").sum())
     
     flagged_df = df[(df["student"] != "Exam area") & (df["severity"].isin(["HIGH", "MEDIUM"]))]
-    flagged_students_list = flagged_df["student"].unique().tolist()
+    flagged_students_list = sorted(flagged_df["student"].unique().tolist())
     flagged = len(flagged_students_list)
 
     if flagged:
@@ -672,7 +676,7 @@ def show_report(result):
 # ----------------------------------------------------------------------------
 st.set_page_config(page_title="Universal Exam Cheating Detection System", page_icon="🎓", layout="wide")
 st.title(f"🎓 Universal Exam Cheating Detection & Analytics System  ·  {APP_VERSION}")
-st.caption("Works dynamically with any number of students (2, 5, 7+) | Advanced Python/Excel style analytics")
+st.caption("Dynamic behavioral analysis for any number of students (2, 5, 10+) | Precise conversational & paper-exchange detection")
 
 st.sidebar.header("⚡ Speed Preset")
 preset = st.sidebar.selectbox("Speed preset", list(PRESETS), index=0)
@@ -712,10 +716,10 @@ st.sidebar.header("🎯 Detection rules")
 person_conf = st.sidebar.slider("Student confidence", 0.10, 0.90, 0.40, 0.05)
 object_conf = st.sidebar.slider("Generic item confidence", 0.10, 0.90, 0.30, 0.05)
 custom_conf = st.sidebar.slider("Trained model confidence", 0.10, 0.90, 0.35, 0.05)
-yaw_threshold = st.sidebar.slider("Head-turn threshold", 0.10, 0.80, 0.35, 0.05)
-head_seconds = st.sidebar.slider("Head turn must last (sec)", 0.0, 5.0, 1.5, 0.5)
+yaw_threshold = st.sidebar.slider("Head-turn threshold", 0.10, 0.80, 0.30, 0.05)
+head_seconds = st.sidebar.slider("Head turn must last (sec)", 0.0, 5.0, 1.0, 0.5)
 object_seconds = st.sidebar.slider("Item visible for (sec)", 0.0, 5.0, 0.5, 0.5)
-neighbor_reach = st.sidebar.slider("Neighbor reach", 1.0, 5.0, 2.0, 0.5)
+neighbor_reach = st.sidebar.slider("Neighbor reach", 1.0, 6.0, 2.5, 0.5)
 prohibited = st.sidebar.multiselect("Prohibited items", list(OBJECT_INFO), default=list(OBJECT_INFO))
 check_head = st.sidebar.checkbox("Detect head turn / looking at neighbor", value=True)
 show_debug = st.sidebar.checkbox("Show debug values", value=False)
