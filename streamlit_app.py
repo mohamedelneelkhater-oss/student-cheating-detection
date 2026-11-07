@@ -1,5 +1,5 @@
 """
-Exam Cheating Detection & Analytics System  -  v19.0 Ultra-Clean & Production Ready (Single-file Streamlit app)
+Exam Cheating Detection & Analytics System  -  v20.0 ASCII-Safe Version (Single-file Streamlit app)
 """
 
 import os
@@ -22,7 +22,7 @@ try:
 except ImportError:
     YOLO_AVAILABLE = False
 
-APP_VERSION = "v19.0 ULTRA-CLEAN"
+APP_VERSION = "v20.0 ASCII-SAFE"
 
 # ----------------------------------------------------------------------------
 # Constants & Settings
@@ -45,12 +45,12 @@ OBJECT_INFO = {
 }
 SEV_ORDER = {"NONE": 0, "LOW": 1, "MEDIUM": 2, "HIGH": 3}
 SEV_COLOR = {"NONE": (0, 200, 0), "LOW": (0, 220, 255), "MEDIUM": (0, 165, 255), "HIGH": (0, 0, 255)}
-SEV_ICON = {"LOW": "🟡", "MEDIUM": "🟠", "HIGH": "🔴"}
+SEV_ICON = {"LOW": "LOW", "MEDIUM": "MED", "HIGH": "HIGH"}
 
 PRESETS = {
-    "⚡ Fast": dict(imgsz=640, frame_skip=5, object_every=3, max_width=640, preview_every=5),
-    "⚖️ Balanced": dict(imgsz=800, frame_skip=3, object_every=2, max_width=960, preview_every=3),
-    "🎯 Accurate": dict(imgsz=960, frame_skip=2, object_every=1, max_width=1280, preview_every=2),
+    "Fast": dict(imgsz=640, frame_skip=5, object_every=3, max_width=640, preview_every=5),
+    "Balanced": dict(imgsz=800, frame_skip=3, object_every=2, max_width=960, preview_every=3),
+    "Accurate": dict(imgsz=960, frame_skip=2, object_every=1, max_width=1280, preview_every=2),
 }
 
 
@@ -549,7 +549,7 @@ def alarm_html():
 def render_live(widgets, info, monitor, current_student_count):
     active = info["active"]
     top = max((SEV_ORDER[e["severity"]] for e in monitor.incidents.events), default=0)
-    top_name = {0: "None ✅", 1: "Low 🟡", 2: "Medium 🟠", 3: "High 🔴"}[top]
+    top_name = {0: "None", 1: "Low", 2: "Medium", 3: "High"}[top]
     
     temp_events = list(monitor.incidents.events)
     consolidate_student_ids(temp_events)
@@ -568,9 +568,9 @@ def render_live(widgets, info, monitor, current_student_count):
         if active:
             for ev in sorted(active, key=lambda e: -SEV_ORDER[e["severity"]]):
                 who = f"Student #{ev['student']}" if ev["student"] is not None else "Exam area"
-                st.error(f"{SEV_ICON[ev['severity']]} **{who}** - {ev['event']}")
+                st.error(f"{SEV_ICON[ev['severity']]} - **{who}** - {ev['event']}")
         else:
-            st.success("✨ No active incidents.")
+            st.success("No active incidents.")
 
 
 def build_result(monitor, frames, source_name, final_student_count):
@@ -655,7 +655,7 @@ def analyze_image(image, source_name, monitor_args):
 # ----------------------------------------------------------------------------
 def show_report(result):
     st.markdown("---")
-    st.header("📋 Comprehensive Exam Analytics & Incident Report")
+    st.header("Comprehensive Exam Analytics & Incident Report")
     st.caption(f"Source: {result['source']}  |  Total Students Detected: {result.get('total_students', 0)}  |  Finished: {result['finished']}")
 
     events = result["events"]
@@ -675,7 +675,7 @@ def show_report(result):
     flagged = len(flagged_students_list)
 
     if flagged:
-        st.error(f"⚠️ {flagged} student(s) flagged for possible cheating: {', '.join(str(s) for s in flagged_students_list)}")
+        st.error(f"Warning: {flagged} student(s) flagged for possible cheating: {', '.join(str(s) for s in flagged_students_list)}")
     else:
         st.info("Only low-severity observations were recorded.")
 
@@ -685,7 +685,7 @@ def show_report(result):
     c3.metric("High Severity Violations", high)
     c4.metric("Medium Severity Violations", medium)
 
-    st.subheader("📊 Advanced Student Analytics (Python / Excel Pivot Summary)")
+    st.subheader("Advanced Student Analytics")
     rank = df.groupby("student").agg(
         total_incidents=("id", "count"),
         high_severity=("severity", lambda s: int((s == "HIGH").sum())),
@@ -699,20 +699,20 @@ def show_report(result):
     
     st.dataframe(rank, use_container_width=True, hide_index=True)
 
-    st.subheader("⏱️ Detailed Incident Timeline")
+    st.subheader("Detailed Incident Timeline")
     cols = ["id", "start", "duration_sec", "student", "severity_icon", "category", "event"]
     st.dataframe(df[cols].sort_values("id"), use_container_width=True, hide_index=True, height=320)
 
     shots = [(row, result["evidence"][int(row["evidence"])]) for _, row in df.iterrows()
              if pd.notna(row["evidence"]) and int(row["evidence"]) < len(result["evidence"])]
     if shots:
-        st.subheader("📸 Evidence Snapshots")
+        st.subheader("Evidence Snapshots")
         grid = st.columns(3)
         for i, (row, jpg) in enumerate(shots):
             grid[i % 3].image(jpg, caption=f"#{row['id']} {row['severity']} - {row['student']} @ {row['start']} - {row['event']}")
 
     export = df.drop(columns=["evidence", "severity_icon"])
-    st.download_button("⬇️ Download Full Analytics Report (CSV)", export.to_csv(index=False).encode("utf-8"),
+    st.download_button("Download Full Analytics Report (CSV)", export.to_csv(index=False).encode("utf-8"),
                        file_name=f"exam_analytics_report_{datetime.now():%Y%m%d_%H%M%S}.csv", mime="text/csv")
 
 
@@ -720,14 +720,14 @@ def show_report(result):
 # Streamlit App UI Setup
 # ----------------------------------------------------------------------------
 st.set_page_config(page_title="Universal Exam Cheating Detection System", page_icon="🎓", layout="wide")
-st.title(f"🎓 Universal Exam Cheating Detection & Analytics System  ·  {APP_VERSION}")
-st.caption("Ultra-Clean Version: Clean structure, robust execution, and accurate multi-student analytics.")
+st.title(f"Universal Exam Cheating Detection & Analytics System - {APP_VERSION}")
+st.caption("ASCII-Safe Version: Fixed string literals and encoding issues.")
 
-st.sidebar.header("⚡ Speed Preset")
+st.sidebar.header("Speed Preset")
 preset = st.sidebar.selectbox("Speed preset", list(PRESETS), index=0)
 PS = PRESETS[preset]
 
-st.sidebar.header("🧠 Detection engines")
+st.sidebar.header("Detection engines")
 use_custom = st.sidebar.checkbox("1. Custom trained model (best.pt)", value=False)
 custom_path = st.sidebar.text_input("Weights path", "weights/best.pt")
 custom_upload = st.sidebar.file_uploader("...or upload best.pt", type=["pt"])
@@ -762,7 +762,7 @@ if pose_err and use_pose:
 if obj_err and use_objects:
     st.sidebar.warning(f"Object model warning: {obj_err}")
 
-st.sidebar.header("🎯 Detection rules")
+st.sidebar.header("Detection rules")
 person_conf = st.sidebar.slider("Student confidence", 0.10, 0.90, 0.35, 0.05)
 object_conf = st.sidebar.slider("Generic item confidence", 0.10, 0.90, 0.30, 0.05)
 custom_conf = st.sidebar.slider("Trained model confidence", 0.10, 0.90, 0.35, 0.05)
@@ -774,7 +774,7 @@ prohibited = st.sidebar.multiselect("Prohibited items", list(OBJECT_INFO), defau
 check_head = st.sidebar.checkbox("Detect head turn / looking at neighbor", value=True)
 show_debug = st.sidebar.checkbox("Show debug values", value=False)
 
-st.sidebar.header("🚀 Performance")
+st.sidebar.header("Performance")
 frame_skip = st.sidebar.slider("Process every Nth frame", 1, 10, PS["frame_skip"])
 object_every = st.sidebar.slider("Run item detectors every Nth frame", 1, 6, PS["object_every"])
 max_width = st.sidebar.select_slider("Max frame width", options=[480, 640, 960, 1280], value=PS["max_width"])
@@ -786,7 +786,7 @@ perf = Settings(frame_skip=frame_skip, max_width=max_width, turbo=turbo, preview
                 max_seconds=max_seconds, sound=sound_on)
 
 st.sidebar.markdown("---")
-st.sidebar.header("🎥 Video source")
+st.sidebar.header("Video source")
 source_option = st.sidebar.selectbox("Choose a source:", ("Upload from device", "Internet link", "Original dataset (videos / images)", "Device camera"))
 
 settings = Settings(
@@ -799,4 +799,67 @@ settings = Settings(
 monitor_args = (pose_model, obj_model, custom_model, settings)
 
 if pose_model is None and obj_model is None and custom_model is None:
-    st.info("ℹ️ Please ensure at least one detection model is active or select standard YOLO weights in the
+    st.info("Please ensure at least one detection model is active or select standard YOLO weights in the sidebar.")
+
+
+def store(result):
+    if result is not None:
+        st.session_state["report"] = result
+
+
+if source_option == "Upload from device":
+    st.markdown("### Analyze a video from your device")
+    uploaded = st.file_uploader("Upload a video (MP4, AVI, MOV, MKV, WEBM)", type=[e.strip(".") for e in VIDEO_EXTENSIONS])
+    if uploaded and st.button("Start analysis", type="primary"):
+        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(uploaded.name).suffix or ".mp4") as tmp:
+            tmp.write(uploaded.read())
+            tmp_path = tmp.name
+        try:
+            store(analyze_video(tmp_path, uploaded.name, monitor_args, perf))
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
+elif source_option == "Internet link":
+    st.markdown("### Analyze a video from the internet")
+    url = st.text_input("Video link:")
+    if url and st.button("Start analysis", type="primary"):
+        with st.spinner("Preparing the video..."):
+            source, tmp_dir, err = resolve_url(url)
+        if err:
+            st.error(err)
+        else:
+            try:
+                store(analyze_video(source, url, monitor_args, perf))
+            finally:
+                if tmp_dir:
+                    shutil.rmtree(tmp_dir, ignore_errors=True)
+
+elif source_option == "Original dataset (videos / images)":
+    st.markdown("### Analyze files from your original dataset")
+    dirs_text = st.sidebar.text_area("Dataset folders", value="\n".join(DEFAULT_DATASET_DIRS), height=110)
+    search_dirs = tuple(d for d in dirs_text.splitlines() if d.strip())
+    videos, images = find_dataset_files(search_dirs)
+    st.write(f"Found **{len(videos)}** video(s) and **{len(images)}** image(s).")
+
+    kind = st.radio("File type", ["Videos", "Images"], horizontal=True)
+    files = videos if kind == "Videos" else images
+    if files:
+        selected = st.selectbox("Select a file:", files)
+        if kind == "Videos":
+            if st.button("Start analysis", type="primary"):
+                store(analyze_video(selected, Path(selected).name, monitor_args, perf))
+        else:
+            img = cv2.imread(selected)
+            if img is not None and st.button("Analyze image", type="primary"):
+                store(analyze_image(img, Path(selected).name, monitor_args))
+
+else:
+    st.markdown("### Device camera snapshot")
+    snapshot = st.camera_input("Take a picture for instant verification")
+    if snapshot is not None:
+        image = cv2.imdecode(np.frombuffer(snapshot.getvalue(), np.uint8), cv2.IMREAD_COLOR)
+        store(analyze_image(image, "Camera snapshot", monitor_args))
+
+if "report" in st.session_state:
+    show_report(st.session_state["report"])
