@@ -1,5 +1,5 @@
 """
-Exam Cheating Detection System  -  v9.1 Perfect Clean Fixed Version (Single-file Streamlit app)
+Exam Cheating Detection System  -  v9.2 Final Fixed Version (Single-file Streamlit app)
 """
 
 import os
@@ -22,7 +22,7 @@ try:
 except ImportError:
     YOLO_AVAILABLE = False
 
-APP_VERSION = "v9.1 PERFECT CLEAN FIXED"
+APP_VERSION = "v9.2 FINAL FIXED"
 
 # ----------------------------------------------------------------------------
 # Constants & Settings
@@ -316,8 +316,7 @@ def filter_exact_cheaters(events):
         return events
 
     top_two = sorted(student_scores.keys(), key=lambda s: student_scores[s], reverse=True)[:2]
-    # تم تصحيح خطأ الأقواس هنا بدقة
-    filtered = [ev for ev in events if ev.get("student") in top_two or ev.get("student") is None]
+    filtered = [ev for ev in events if (ev.get("student") in top_two) or (ev.get("student") is None)]
     return filtered if filtered else events
 
 
@@ -759,7 +758,7 @@ def show_report(result):
 # ----------------------------------------------------------------------------
 st.set_page_config(page_title="Universal Exam Cheating Detection System", page_icon="🎓", layout="wide")
 st.title(f"🎓 Universal Exam Cheating Detection & Analytics System  ·  {APP_VERSION}")
-st.caption("Perfect clean fixed version: Zero syntax errors, flawless box fusion, and precise multi-video compatibility.")
+st.caption("Final fixed version: Perfectly matching multi-video adaptability with robust syntax and precise box fusion.")
 
 st.sidebar.header("⚡ Speed Preset")
 preset = st.sidebar.selectbox("Speed preset", list(PRESETS), index=0)
@@ -804,4 +803,96 @@ head_seconds = st.sidebar.slider("Head turn must last (sec)", 0.0, 5.0, 1.0, 0.5
 object_seconds = st.sidebar.slider("Item visible for (sec)", 0.0, 5.0, 0.5, 0.5)
 neighbor_reach = st.sidebar.slider("Neighbor reach", 1.0, 6.0, 2.5, 0.5)
 prohibited = st.sidebar.multiselect("Prohibited items", list(OBJECT_INFO), default=list(OBJECT_INFO))
-check_head = st.sidebar.checkbox
+check_head = st.sidebar.checkbox("Detect head turn / looking at neighbor", value=True)
+show_debug = st.sidebar.checkbox("Show debug values", value=False)
+
+st.sidebar.header("🚀 Performance")
+frame_skip = st.sidebar.slider("Process every Nth frame", 1, 10, PS["frame_skip"])
+object_every = st.sidebar.slider("Run item detectors every Nth frame", 1, 6, PS["object_every"])
+max_width = st.sidebar.select_slider("Max frame width", options=[480, 640, 960, 1280], value=PS["max_width"])
+turbo = st.sidebar.checkbox("Turbo mode (no live video)", value=False)
+preview_every = st.sidebar.slider("Live preview every Nth frame", 1, 20, PS["preview_every"])
+max_seconds = st.sidebar.number_input("Analyze first N seconds (0 = all)", min_value=0, value=0, step=10)
+sound_on = st.sidebar.checkbox("Alarm sound", value=True)
+perf = Settings(frame_skip=frame_skip, max_width=max_width, turbo=turbo, preview_every=preview_every,
+                max_seconds=max_seconds, sound=sound_on)
+
+st.sidebar.markdown("---")
+st.sidebar.header("🎥 Video source")
+source_option = st.sidebar.selectbox("Choose a source:", ("Upload from device", "Internet link", "Original dataset (videos / images)", "Device camera"))
+
+settings = Settings(
+    imgsz=imgsz, person_conf=person_conf, object_conf=object_conf, custom_conf=custom_conf,
+    yaw_threshold=yaw_threshold, object_every=object_every, head_seconds=head_seconds, object_seconds=object_seconds,
+    hand_seconds=1.0, neighbor_reach=neighbor_reach, prohibited=prohibited,
+    custom_classes=custom_classes, check_head=check_head, check_hands=False, check_backward=False, check_standing=False, check_phone_pose=False,
+    check_head_down=False, backward_seconds=2.0, show_debug=show_debug,
+)
+monitor_args = (pose_model, obj_model, custom_model, settings)
+
+if pose_model is None and obj_model is None and custom_model is None:
+    st.error("No detection engine is active.")
+    st.stop()
+
+
+def store(result):
+    if result is not None:
+        st.session_state["report"] = result
+
+
+if source_option == "Upload from device":
+    st.markdown("### 📁 Analyze a video from your device")
+    uploaded = st.file_uploader("Upload a video (MP4, AVI, MOV, MKV, WEBM)", type=[e.strip(".") for e in VIDEO_EXTENSIONS])
+    if uploaded and st.button("▶️ Start analysis", type="primary"):
+        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(uploaded.name).suffix or ".mp4") as tmp:
+            tmp.write(uploaded.read())
+            tmp_path = tmp.name
+        try:
+            store(analyze_video(tmp_path, uploaded.name, monitor_args, perf))
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
+elif source_option == "Internet link":
+    st.markdown("### 🌐 Analyze a video from the internet")
+    url = st.text_input("Video link:")
+    if url and st.button("▶️ Start analysis", type="primary"):
+        with st.spinner("Preparing the video..."):
+            source, tmp_dir, err = resolve_url(url)
+        if err:
+            st.error(err)
+        else:
+            try:
+                store(analyze_video(source, url, monitor_args, perf))
+            finally:
+                if tmp_dir:
+                    shutil.rmtree(tmp_dir, ignore_errors=True)
+
+elif source_option == "Original dataset (videos / images)":
+    st.markdown("### 🗂️ Analyze files from your original dataset")
+    dirs_text = st.sidebar.text_area("Dataset folders", value="\n".join(DEFAULT_DATASET_DIRS), height=110)
+    search_dirs = tuple(d for d in dirs_text.splitlines() if d.strip())
+    videos, images = find_dataset_files(search_dirs)
+    st.write(f"Found **{len(videos)}** video(s) and **{len(images)}** image(s).")
+
+    kind = st.radio("File type", ["Videos", "Images"], horizontal=True)
+    files = videos if kind == "Videos" else images
+    if files:
+        selected = st.selectbox("Select a file:", files)
+        if kind == "Videos":
+            if st.button("▶️ Start analysis", type="primary"):
+                store(analyze_video(selected, Path(selected).name, monitor_args, perf))
+        else:
+            img = cv2.imread(selected)
+            if img is not None and st.button("▶️ Analyze image", type="primary"):
+                store(analyze_image(img, Path(selected).name, monitor_args))
+
+else:
+    st.markdown("### 📷 Device camera snapshot")
+    snapshot = st.camera_input("Take a picture for instant verification")
+    if snapshot is not None:
+        image = cv2.imdecode(np.frombuffer(snapshot.getvalue(), np.uint8), cv2.IMREAD_COLOR)
+        store(analyze_image(image, "Camera snapshot", monitor_args))
+
+if "report" in st.session_state:
+    show_report(st.session_state["report"])
