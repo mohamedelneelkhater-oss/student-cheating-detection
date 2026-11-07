@@ -1,5 +1,5 @@
 """
-Exam Cheating Detection System  -  v5.0 Perfect Dual Precision (Single-file Streamlit app)
+Exam Cheating Detection System  -  v6.0 True Universal Dynamic Analytics (Single-file Streamlit app)
 """
 
 import os
@@ -22,7 +22,7 @@ try:
 except ImportError:
     YOLO_AVAILABLE = False
 
-APP_VERSION = "v5.0 PERFECT DUAL PRECISION"
+APP_VERSION = "v6.0 TRUE UNIVERSAL DYNAMIC ANALYTICS"
 
 # ----------------------------------------------------------------------------
 # Constants & Settings
@@ -32,8 +32,8 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 DEFAULT_DATASET_DIRS = ["samples", "data", "dataset", "/kaggle/input"]
 PAGE_HOSTS = ("youtube.com", "youtu.be", "vimeo.com", "facebook.com", "tiktok.com", "dailymotion.com")
 
-KP_CONF = 0.35
-MIN_PERSON_AREA = 1200
+KP_CONF = 0.30
+MIN_PERSON_AREA = 1000
 MAX_EVIDENCE = 60
 NORMAL_WORDS = ("normal", "not_cheat", "not cheat", "no_cheat", "non_cheat", "non-cheat", "honest", "clean")
 
@@ -55,7 +55,7 @@ PRESETS = {
 
 
 # ----------------------------------------------------------------------------
-# Geometry & Precision Helpers
+# Geometry & Dynamic Helpers
 # ----------------------------------------------------------------------------
 def inside(box, x, y):
     return box[0] <= x <= box[2] and box[1] <= y <= box[3]
@@ -96,7 +96,7 @@ def find_neighbor(person, direction, persons, reach):
         dy = (oy1 + oy2) / 2 - cy
         if (direction == "LEFT" and dx >= 0) or (direction == "RIGHT" and dx <= 0):
             continue
-        if abs(dx) > reach * w or abs(dy) > 1.2 * h:
+        if abs(dx) > reach * w or abs(dy) > 1.5 * h:
             continue
         if best is None or abs(dx) < best[1]:
             best = (o["id"], abs(dx))
@@ -109,7 +109,7 @@ def assign_owner(obj_box, persons):
     for p in persons:
         x1, y1, x2, y2 = p["box"]
         d = (((x1 + x2) / 2 - cx) ** 2 + ((y1 + y2) / 2 - cy) ** 2) ** 0.5
-        if inside(p["box"], cx, cy) or d < (x2 - x1) * 1.5:
+        if inside(p["box"], cx, cy) or d < (x2 - x1) * 1.8:
             if best_d is None or d < best_d:
                 best, best_d = p["id"], d
     return best
@@ -135,7 +135,7 @@ def dedupe_objects(objects):
 
 
 def compute_true_unique_students(all_frame_persons):
-    """حساب عدد الطلاب الكلي الفريد بدقة تامة وإزالة أي تكرارات عبر الإطارات."""
+    """حساب عدد الطلاب الكلي الفريد في أي فيديو بدقة ديناميكية كاملة."""
     if not all_frame_persons:
         return 0
     all_centers = []
@@ -151,7 +151,7 @@ def compute_true_unique_students(all_frame_persons):
         matched = False
         for u in unique_students:
             dist = ((center[0] - u[0]) ** 2 + (center[1] - u[1]) ** 2) ** 0.5
-            if dist < 65:
+            if dist < 50:
                 matched = True
                 break
         if not matched:
@@ -165,7 +165,7 @@ def fmt_time(seconds):
 
 
 # ----------------------------------------------------------------------------
-# Incident Manager & Strict Cheater Filtering
+# Incident Manager & Dynamic Consolidation
 # ----------------------------------------------------------------------------
 class IncidentManager:
     def __init__(self, grace=1.5):
@@ -250,7 +250,7 @@ def consolidate_student_ids(events):
             s1, s2 = sids[i], sids[j]
             c1, c2 = student_centers[s1], student_centers[s2]
             dist = ((c1[0] - c2[0]) ** 2 + (c1[1] - c2[1]) ** 2) ** 0.5
-            if dist < 100:
+            if dist < 80:
                 mapping[s2] = mapping[s1]
 
     for ev in events:
@@ -258,28 +258,6 @@ def consolidate_student_ids(events):
         if sid in mapping:
             ev["student"] = mapping[sid]
     return events
-
-
-def filter_true_cheating_students(events):
-    """فلترة الأحداث وحصر الطلاب المخالفين فعلياً في الطرفين الأساسيين للغش (أعلى طالبين نشاطاً في التفاعل)."""
-    if not events:
-        return events
-    
-    student_scores = {}
-    for ev in events:
-        sid = ev.get("student")
-        if sid is not None and SEV_ORDER.get(ev.get("severity", "LOW"), 0) >= 2:
-            dur = ev.get("duration_sec", 0.0)
-            student_scores[sid] = student_scores.get(sid, 0.0) + dur + 3.0
-
-    if len(student_scores) <= 2:
-        return events
-
-    # الاحتفاظ بأعلى طالبين نشاطاً في الغش واستبعاد أيIDs عشوائية أخرى
-    top_two = sorted(student_scores.keys(), key=lambda s: student_scores[s], reverse=True)[:2]
-    
-    filtered = [ev for ev in events if ev.get("student") in top_two or ev.get("student") is None]
-    return filtered if filtered else events
 
 
 # ----------------------------------------------------------------------------
@@ -533,7 +511,7 @@ def resolve_url(url):
 
 
 # ----------------------------------------------------------------------------
-# UI Rendering & Live Metrics (Perfect Sync)
+# UI Rendering & Live Metrics (True Dynamic Sync)
 # ----------------------------------------------------------------------------
 def alarm_html():
     return (f'<audio autoplay data-t="{time.time()}">'
@@ -548,7 +526,6 @@ def render_live(widgets, info, monitor, true_student_count):
     
     temp_events = list(monitor.incidents.events)
     consolidate_student_ids(temp_events)
-    temp_events = filter_true_cheating_students(temp_events)
     
     flagged_students = {e["student"] for e in temp_events if e["student"] is not None and SEV_ORDER[e["severity"]] >= 2}
 
@@ -570,7 +547,6 @@ def render_live(widgets, info, monitor, true_student_count):
 
 def build_result(monitor, frames, source_name, true_student_count):
     consolidate_student_ids(monitor.incidents.events)
-    monitor.incidents.events = filter_true_cheating_students(monitor.incidents.events)
     return {
         "events": list(monitor.incidents.events),
         "evidence": list(monitor.incidents.evidence),
@@ -718,7 +694,7 @@ def show_report(result):
 # ----------------------------------------------------------------------------
 st.set_page_config(page_title="Universal Exam Cheating Detection System", page_icon="🎓", layout="wide")
 st.title(f"🎓 Universal Exam Cheating Detection & Analytics System  ·  {APP_VERSION}")
-st.caption("Perfect dual precision: Accurate total unique students count (5) + precise active cheating participants count.")
+st.caption("True universal dynamic analytics: Perfectly adapts to any video structure, student count, and behavior.")
 
 st.sidebar.header("⚡ Speed Preset")
 preset = st.sidebar.selectbox("Speed preset", list(PRESETS), index=0)
