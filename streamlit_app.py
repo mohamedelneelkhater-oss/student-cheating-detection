@@ -1,5 +1,5 @@
 """
-Exam Cheating Detection System  -  v4.2 Perfect Live & Report Sync (Single-file Streamlit app)
+Exam Cheating Detection System  -  v4.3 Universal & Dynamic Analytics (Single-file Streamlit app)
 """
 
 import os
@@ -22,7 +22,7 @@ try:
 except ImportError:
     YOLO_AVAILABLE = False
 
-APP_VERSION = "v4.2 LIVE & REPORT PERFECT SYNC"
+APP_VERSION = "v4.3 UNIVERSAL DYNAMIC ANALYTICS"
 
 # ----------------------------------------------------------------------------
 # Constants & Settings
@@ -33,13 +33,13 @@ DEFAULT_DATASET_DIRS = ["samples", "data", "dataset", "/kaggle/input"]
 PAGE_HOSTS = ("youtube.com", "youtu.be", "vimeo.com", "facebook.com", "tiktok.com", "dailymotion.com")
 
 KP_CONF = 0.40
-MIN_PERSON_AREA = 2000
+MIN_PERSON_AREA = 1800
 MAX_EVIDENCE = 60
 NORMAL_WORDS = ("normal", "not_cheat", "not cheat", "no_cheat", "non_cheat", "non-cheat", "honest", "clean")
 
 OBJECT_INFO = {
-    "cell phone": ("Mobile phone", "HIGH"),
-    "book": ("Book / notes", "HIGH"),
+    "cell phone": ("Mobile phone / Smartphone", "HIGH"),
+    "book": ("Book / notes / paper", "HIGH"),
     "laptop": ("Laptop / tablet", "HIGH"),
     "remote": ("Unknown electronic device", "MEDIUM"),
 }
@@ -55,7 +55,7 @@ PRESETS = {
 
 
 # ----------------------------------------------------------------------------
-# Geometry & Precision Helpers
+# Geometry & Dynamic Helpers
 # ----------------------------------------------------------------------------
 def inside(box, x, y):
     return box[0] <= x <= box[2] and box[1] <= y <= box[3]
@@ -140,7 +140,7 @@ def fmt_time(seconds):
 
 
 # ----------------------------------------------------------------------------
-# Incident Manager & ID Merging
+# Incident Manager & Dynamic ID Consolidation
 # ----------------------------------------------------------------------------
 class IncidentManager:
     def __init__(self, grace=1.2):
@@ -202,6 +202,7 @@ class IncidentManager:
 
 
 def consolidate_student_ids(events):
+    """دمج الهويات المتطفرة الناتجة عن تتبع الكاميرا تلقائياً لأي عدد من الطلاب."""
     if not events:
         return events
     student_boxes = {}
@@ -225,7 +226,7 @@ def consolidate_student_ids(events):
             s1, s2 = sids[i], sids[j]
             c1, c2 = student_centers[s1], student_centers[s2]
             dist = ((c1[0] - c2[0]) ** 2 + (c1[1] - c2[1]) ** 2) ** 0.5
-            if dist < 85:
+            if dist < 90:
                 mapping[s2] = mapping[s1]
 
     for ev in events:
@@ -357,16 +358,16 @@ class ExamMonitor:
                         min_sec=s.head_seconds, box=p["box"])
                 else:
                     conditions[("head", sid)] = dict(
-                        student=sid, severity="LOW", category="Head turn",
-                        label=f"Head turned {direction} (slight turn)", 
-                        min_sec=s.head_seconds + 1.5, box=p["box"])
+                        student=sid, severity="MEDIUM", category="Head turn",
+                        label=f"Head turned {direction} (looking away)", 
+                        min_sec=s.head_seconds + 0.5, box=p["box"])
 
         for o in objects:
             owner = assign_owner(o["box"], persons)
             where = f"Student #{owner}" if owner is not None else "the exam area"
             o["owner"] = owner
             if o["source"] == "coco":
-                label, sev = OBJECT_INFO.get(o["name"], (o["name"], "MEDIUM"))
+                label, sev = OBJECT_INFO.get(o["name"], (o["name"], "HIGH"))
                 category = "Prohibited item"
                 text = f"{label} near {where}"
             else:
@@ -402,8 +403,8 @@ class ExamMonitor:
             sev = sev_by_student.get(sid, "NONE")
             color = SEV_COLOR[sev]
             x1, y1, x2, y2 = [int(v) for v in p["box"]]
-            cv2.rectangle(out, (x1, y1), (x2, y2), color, th if sev not in ("NONE", "LOW") else 2)
-            text = f"#{sid}" + (f" {sev}" if sev not in ("NONE", "LOW") else "")
+            cv2.rectangle(out, (x1, y1), (x2, y2), color, th if sev != "NONE" else 2)
+            text = f"#{sid}" + (f" {sev}" if sev != "NONE" else "")
             if self.s.show_debug and yaw_map.get(sid) is not None:
                 text += f"  yaw {yaw_map[sid]:+.2f}"
             cv2.putText(out, text, (x1, max(y1 - 8, 15)), cv2.FONT_HERSHEY_SIMPLEX, scale, color, th)
@@ -484,7 +485,7 @@ def resolve_url(url):
 
 
 # ----------------------------------------------------------------------------
-# UI Rendering & Flow
+# UI Rendering & Dynamic Metrics
 # ----------------------------------------------------------------------------
 def alarm_html():
     return (f'<audio autoplay data-t="{time.time()}">'
@@ -497,23 +498,17 @@ def render_live(widgets, info, monitor):
     top = max((SEV_ORDER[e["severity"]] for e in monitor.incidents.events), default=0)
     top_name = {0: "None ✅", 1: "Low 🟡", 2: "Medium 🟠", 3: "High 🔴"}[top]
     
-    # تطبيق دمج وتجميع الهويات أيضاً داخل الواجهة المباشرة لمنع ظهور الرقم 3 خطأً
     temp_events = list(monitor.incidents.events)
     consolidate_student_ids(temp_events)
     
-    flagged_students = set()
-    for e in temp_events:
-        if e["student"] is not None and SEV_ORDER[e["severity"]] >= 2:
-            flagged_students.add(e["student"])
-            
-    # حصر كروت التنبيه في طالبين فقط كحد أقصى لمنع الضوضاء الجانبية
-    final_flagged_count = min(len(flagged_students), 2)
+    # حساب ديناميكي كامل لأي طالب ظهرت عنده مخالفة متوسطة أو عالية
+    flagged_students = {e["student"] for e in temp_events if e["student"] is not None and SEV_ORDER[e["severity"]] >= 2}
 
     with widgets["metrics"].container():
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Students detected", info["students"])
         c2.metric("Active incidents", len(active))
-        c3.metric("Students flagged (cheating)", final_flagged_count)
+        c3.metric("Students flagged (cheating)", len(flagged_students))  # ديناميكي 100% بدون حدود
         c4.metric("Highest risk so far", top_name)
         
     with widgets["alerts"].container():
@@ -595,9 +590,12 @@ def analyze_image(image, source_name, monitor_args):
     return build_result(monitor, 1, source_name)
 
 
+# ----------------------------------------------------------------------------
+# Comprehensive Excel-like Analytics & Report
+# ----------------------------------------------------------------------------
 def show_report(result):
     st.markdown("---")
-    st.header("📋 Incident Report")
+    st.header("📋 Comprehensive Exam Analytics & Incident Report")
     st.caption(f"Source: {result['source']}  |  Frames read: {result['frames']}  |  Finished: {result['finished']}")
 
     events = result["events"]
@@ -612,61 +610,62 @@ def show_report(result):
 
     high, medium = int((df["severity"] == "HIGH").sum()), int((df["severity"] == "MEDIUM").sum())
     
-    rank_temp = df[(df["student"] != "Exam area") & (df["severity"].isin(["HIGH", "MEDIUM"]))].groupby("student").agg(
-        score=("severity", lambda s: int((s == "HIGH").sum()) * 3 + int((s == "MEDIUM").sum()) * 2),
-        duration=("duration_sec", "sum")
-    ).reset_index()
-    
-    top_two_students = rank_temp.sort_values(by=["score", "duration"], ascending=False).head(2)["student"].tolist()
-    
-    flagged_df = df[(df["student"].isin(top_two_students)) & (df["severity"].isin(["HIGH", "MEDIUM"]))]
-    flagged = len(top_two_students)
+    # حساب ديناميكي شامل لجميع الطلاب الذين ارتكبوا مخالفات حقيقية
+    flagged_df = df[(df["student"] != "Exam area") & (df["severity"].isin(["HIGH", "MEDIUM"]))]
+    flagged_students_list = flagged_df["student"].unique().tolist()
+    flagged = len(flagged_students_list)
 
     if flagged:
-        st.error(f"⚠️ {flagged} student(s) flagged for possible cheating.")
+        st.error(f"⚠️ {flagged} student(s) flagged for possible cheating: {', '.join(flagged_students_list)}")
     else:
         st.info("Only low-severity observations were recorded.")
 
+    # لوحة المؤشرات الرئيسية (Excel-like Summary Cards)
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Cheating cases (students)", flagged)
-    c2.metric("Total incidents", len(df))
-    c3.metric("High severity", high)
-    c4.metric("Medium severity", medium)
+    c1.metric("Total Cheating Students", flagged)
+    c2.metric("Total Recorded Incidents", len(df))
+    c3.metric("High Severity Violations", high)
+    c4.metric("Medium Severity Violations", medium)
 
-    st.subheader("Cheating cases per student")
+    # التحليل المتقدم للبيانات (Groupby / Pivot Style Analytics)
+    st.subheader("📊 Advanced Student Analytics (Python / Excel Pivot Summary)")
     rank = df.groupby("student").agg(
-        incidents=("id", "count"),
-        high=("severity", lambda s: int((s == "HIGH").sum())),
-        medium=("severity", lambda s: int((s == "MEDIUM").sum())),
-        total_seconds=("duration_sec", "sum"),
-        violations=("event", lambda s: " | ".join(sorted(set(s)))),
+        total_incidents=("id", "count"),
+        high_severity=("severity", lambda s: int((s == "HIGH").sum())),
+        medium_severity=("severity", lambda s: int((s == "MEDIUM").sum())),
+        total_violation_seconds=("duration_sec", "sum"),
+        violation_types=("event", lambda s: " | ".join(sorted(set(s)))),
     ).reset_index()
-    rank["score"] = rank["high"] * 3 + rank["medium"] * 2
     
-    st.dataframe(rank.sort_values("score", ascending=False), use_container_width=True, hide_index=True)
+    # حساب درجات الخطورة الإجمالية لترتيب جدول التحليل
+    rank["risk_score"] = rank["high_severity"] * 3 + rank["medium_severity"] * 2
+    rank = rank.sort_values(by=["risk_score", "total_violation_seconds"], ascending=False)
+    
+    st.dataframe(rank, use_container_width=True, hide_index=True)
 
-    st.subheader("Incident timeline")
+    st.subheader("⏱️ Detailed Incident Timeline")
     cols = ["id", "start", "duration_sec", "student", "severity_icon", "category", "event"]
     st.dataframe(df[cols].sort_values("id"), use_container_width=True, hide_index=True, height=320)
 
     shots = [(row, result["evidence"][int(row["evidence"])]) for _, row in df.iterrows()
              if pd.notna(row["evidence"]) and int(row["evidence"]) < len(result["evidence"])]
     if shots:
-        st.subheader("Evidence snapshots")
+        st.subheader("📸 Evidence Snapshots")
         grid = st.columns(3)
         for i, (row, jpg) in enumerate(shots):
             grid[i % 3].image(jpg, caption=f"#{row['id']} {row['severity']} - {row['student']} @ {row['start']} - {row['event']}")
 
     export = df.drop(columns=["evidence", "severity_icon"])
-    st.download_button("⬇️ Download report (CSV)", export.to_csv(index=False).encode("utf-8"),
-                       file_name=f"cheating_report_{datetime.now():%Y%m%d_%H%M%S}.csv", mime="text/csv")
+    st.download_button("⬇️ Download Full Analytics Report (CSV)", export.to_csv(index=False).encode("utf-8"),
+                       file_name=f"exam_analytics_report_{datetime.now():%Y%m%d_%H%M%S}.csv", mime="text/csv")
 
 
 # ----------------------------------------------------------------------------
 # Streamlit App UI Setup
 # ----------------------------------------------------------------------------
-st.set_page_config(page_title="Exam Cheating Detection System", page_icon="🎓", layout="wide")
-st.title(f"🎓 Exam Cheating Detection & Monitoring System  ·  {APP_VERSION}")
+st.set_page_config(page_title="Universal Exam Cheating Detection System", page_icon="🎓", layout="wide")
+st.title(f"🎓 Universal Exam Cheating Detection & Analytics System  ·  {APP_VERSION}")
+st.caption("Works dynamically with any number of students (2, 5, 7+) | Advanced Python/Excel style analytics")
 
 st.sidebar.header("⚡ Speed Preset")
 preset = st.sidebar.selectbox("Speed preset", list(PRESETS), index=0)
@@ -676,9 +675,9 @@ st.sidebar.header("🧠 Detection engines")
 use_custom = st.sidebar.checkbox("1. Custom trained model (best.pt)", value=True)
 custom_path = st.sidebar.text_input("Weights path", "weights/best.pt")
 custom_upload = st.sidebar.file_uploader("...or upload best.pt", type=["pt"])
-use_pose = st.sidebar.checkbox("2. Pose model", value=True)
+use_pose = st.sidebar.checkbox("2. Pose model (Head/Body tracking)", value=True)
 pose_name = st.sidebar.selectbox("Pose weights", ["yolo11n-pose.pt", "yolo11s-pose.pt"])
-use_objects = st.sidebar.checkbox("3. Generic objects", value=True)
+use_objects = st.sidebar.checkbox("3. Generic objects (Phones / Books)", value=True)
 obj_name = st.sidebar.selectbox("Object weights", ["yolo11s.pt", "yolo11n.pt"])
 imgsz = st.sidebar.select_slider("Inference size", options=[640, 800, 960, 1280], value=PS["imgsz"])
 
@@ -710,7 +709,7 @@ yaw_threshold = st.sidebar.slider("Head-turn threshold", 0.10, 0.80, 0.35, 0.05)
 head_seconds = st.sidebar.slider("Head turn must last (sec)", 0.0, 5.0, 1.5, 0.5)
 object_seconds = st.sidebar.slider("Item visible for (sec)", 0.0, 5.0, 0.5, 0.5)
 neighbor_reach = st.sidebar.slider("Neighbor reach", 1.0, 5.0, 2.0, 0.5)
-prohibited = st.sidebar.multiselect("Prohibited generic items", list(OBJECT_INFO), default=list(OBJECT_INFO))
+prohibited = st.sidebar.multiselect("Prohibited items", list(OBJECT_INFO), default=list(OBJECT_INFO))
 check_head = st.sidebar.checkbox("Detect head turn / looking at neighbor", value=True)
 show_debug = st.sidebar.checkbox("Show debug values", value=False)
 
