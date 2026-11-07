@@ -1,5 +1,5 @@
 """
-Exam Cheating Detection System  -  v3.8 High Accuracy & Speed (Single-file Streamlit app)
+Exam Cheating Detection System  -  v3.9 Precision Filtering (Single-file Streamlit app)
 """
 
 import os
@@ -22,7 +22,7 @@ try:
 except ImportError:
     YOLO_AVAILABLE = False
 
-APP_VERSION = "v3.8 HIGH ACCURACY"
+APP_VERSION = "v3.9 STRICT PRECISION"
 
 # ----------------------------------------------------------------------------
 # Constants & Settings
@@ -32,16 +32,8 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 DEFAULT_DATASET_DIRS = ["samples", "data", "dataset", "/kaggle/input"]
 PAGE_HOSTS = ("youtube.com", "youtu.be", "vimeo.com", "facebook.com", "tiktok.com", "dailymotion.com")
 
-KP_CONF = 0.35
-HEAD_DOWN_RATIO = 0.25
-STANDING_RATIO = 1.35
-
-PRESETS = {
-    "⚡ Fast": dict(imgsz=640, frame_skip=5, object_every=3, max_width=640, preview_every=5),
-    "⚖️ Balanced": dict(imgsz=800, frame_skip=3, object_every=2, max_width=960, preview_every=3),
-    "🎯 Accurate": dict(imgsz=960, frame_skip=2, object_every=1, max_width=1280, preview_every=2),
-}
-MIN_PERSON_AREA = 1500
+KP_CONF = 0.40
+MIN_PERSON_AREA = 2000
 MAX_EVIDENCE = 60
 NORMAL_WORDS = ("normal", "not_cheat", "not cheat", "no_cheat", "non_cheat", "non-cheat", "honest", "clean")
 
@@ -55,9 +47,15 @@ SEV_ORDER = {"NONE": 0, "LOW": 1, "MEDIUM": 2, "HIGH": 3}
 SEV_COLOR = {"NONE": (0, 200, 0), "LOW": (0, 220, 255), "MEDIUM": (0, 165, 255), "HIGH": (0, 0, 255)}
 SEV_ICON = {"LOW": "🟡", "MEDIUM": "🟠", "HIGH": "🔴"}
 
+PRESETS = {
+    "⚡ Fast": dict(imgsz=640, frame_skip=5, object_every=3, max_width=640, preview_every=5),
+    "⚖️ Balanced": dict(imgsz=800, frame_skip=3, object_every=2, max_width=960, preview_every=3),
+    "🎯 Accurate": dict(imgsz=960, frame_skip=2, object_every=1, max_width=1280, preview_every=2),
+}
+
 
 # ----------------------------------------------------------------------------
-# Geometry / Rules Helpers
+# Geometry & Precision Helpers
 # ----------------------------------------------------------------------------
 def inside(box, x, y):
     return box[0] <= x <= box[2] and box[1] <= y <= box[3]
@@ -142,7 +140,7 @@ def fmt_time(seconds):
 
 
 # ----------------------------------------------------------------------------
-# Incident Manager (Ensures Accurate Per-Student Aggregation)
+# Incident Manager
 # ----------------------------------------------------------------------------
 class IncidentManager:
     def __init__(self, grace=1.2):
@@ -272,18 +270,6 @@ class ExamMonitor:
             out.append({"name": name, "conf": float(box.conf[0]), "box": (x1, y1, x2, y2), "source": source})
         return out
 
-    def _extra_rules(self, p, sid, conditions):
-        s, kp = self.s, p["kp"]
-        ok = lambda i: kp[i][2] >= KP_CONF
-        x1, y1, x2, y2 = p["box"]
-        shoulders = ok(5) and ok(6)
-        sw = abs(kp[5][0] - kp[6][0]) if shoulders else (x2 - x1) * 0.5
-
-        if s.check_backward and shoulders and not (ok(0) or ok(1) or ok(2)):
-            conditions[("back", sid)] = dict(
-                student=sid, severity="MEDIUM", category="Looking backward",
-                label="Turned away / looking backward (face not visible)", min_sec=s.backward_seconds)
-
     def _track_objects(self, objects):
         for o in objects:
             x1, y1, x2, y2 = o["box"]
@@ -328,6 +314,7 @@ class ExamMonitor:
             if yaw is not None:
                 direction = "LEFT" if yaw < -s.yaw_threshold else ("RIGHT" if yaw > s.yaw_threshold else None)
 
+            # التفتيش الدقيق: عدم تصنيف الالتفات الجانبي إلا عند استهداف زميل مباشر فقط
             if direction and s.check_head:
                 nb = find_neighbor(p, direction, persons, s.neighbor_reach)
                 if nb is not None:
@@ -335,11 +322,10 @@ class ExamMonitor:
                         student=sid, severity="HIGH", category="Copying from neighbor",
                         label=f"Looking {direction} at Student #{nb} (possible copying)", min_sec=s.head_seconds)
                 else:
+                    # الالتفات العادي يعطى خطورة منخفضة LOW كي لا يُحسب كحالة غش مؤكدة
                     conditions[("head", sid)] = dict(
-                        student=sid, severity="MEDIUM", category="Head turn",
-                        label=f"Head turned {direction}", min_sec=s.head_seconds)
-
-            self._extra_rules(p, sid, conditions)
+                        student=sid, severity="LOW", category="Head turn",
+                        label=f"Head turned {direction} (slight turn)", min_sec=s.head_seconds + 1.0)
 
         for o in objects:
             owner = assign_owner(o["box"], persons)
@@ -382,15 +368,11 @@ class ExamMonitor:
             sev = sev_by_student.get(sid, "NONE")
             color = SEV_COLOR[sev]
             x1, y1, x2, y2 = [int(v) for v in p["box"]]
-            cv2.rectangle(out, (x1, y1), (x2, y2), color, th if sev != "NONE" else 2)
-            text = f"#{sid}" + (f" {sev}" if sev != "NONE" else "")
+            cv2.rectangle(out, (x1, y1), (x2, y2), color, th if sev not in ("NONE", "LOW") else 2)
+            text = f"#{sid}" + (f" {sev}" if sev not in ("NONE", "LOW") else "")
             if self.s.show_debug and yaw_map.get(sid) is not None:
                 text += f"  yaw {yaw_map[sid]:+.2f}"
             cv2.putText(out, text, (x1, max(y1 - 8, 15)), cv2.FONT_HERSHEY_SIMPLEX, scale, color, th)
-            for ki in range(5):
-                kx, ky, kc = p["kp"][ki]
-                if kc >= KP_CONF:
-                    cv2.circle(out, (int(kx), int(ky)), 3, (255, 255, 0), -1)
         for o in objects:
             x1, y1, x2, y2 = [int(v) for v in o["box"]]
             cv2.rectangle(out, (x1, y1), (x2, y2), (0, 0, 255), th)
@@ -401,7 +383,7 @@ class ExamMonitor:
 
 
 # ----------------------------------------------------------------------------
-# Cache & Sources Loader
+# Cache & Source Loader
 # ----------------------------------------------------------------------------
 @st.cache_resource(show_spinner="Loading model...")
 def load_model(name, fallback=None):
@@ -449,22 +431,22 @@ def resolve_url(url):
             return path, tmp, None
         except Exception as exc:
             shutil.rmtree(tmp, ignore_errors=True)
-            return None, None, f"Could not open or download the link: {exc}"
+            return None, None, f"Could not open link: {exc}"
 
     tmp = tempfile.mkdtemp()
     try:
         import yt_dlp
         opts = {
-            "format": "best[height<=720][ext=mp4]/best[height<=720]/best",
+            "format": "best[height<=720][ext=mp4]/best",
             "outtmpl": os.path.join(tmp, "video.%(ext)s"),
-            "quiet": True, "noplaylist": True, "max_filesize": 300 * 1024 * 1024,
+            "quiet": True, "noplaylist": True,
         }
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=True)
             return ydl.prepare_filename(info), tmp, None
     except Exception as exc:
         shutil.rmtree(tmp, ignore_errors=True)
-        return None, None, f"Could not download this link ({exc})."
+        return None, None, f"Could not download link ({exc})."
 
 
 # ----------------------------------------------------------------------------
@@ -510,7 +492,7 @@ def build_result(monitor, frames, source_name):
 def analyze_video(source, source_name, monitor_args, perf):
     cap = cv2.VideoCapture(source)
     if not cap.isOpened():
-        st.error("Could not open the video source.")
+        st.error("Could not open video.")
         return None
 
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
@@ -546,9 +528,6 @@ def analyze_video(source, source_name, monitor_args, perf):
             render_live(widgets, info, monitor)
         if total > 0 and processed % 5 == 0:
             progress.progress(min(frame_idx / total, 1.0))
-        if processed % 10 == 0:
-            speed = processed / max(time.time() - started, 1e-6)
-            status.caption(f"Analyzed {processed} frames | {speed:.1f} fps | incidents: {len(monitor.incidents.events)}")
 
         if perf.sound and info["new"] and time.time() - last_sound > 3:
             sound_slot.markdown(alarm_html(), unsafe_allow_html=True)
@@ -558,8 +537,6 @@ def analyze_video(source, source_name, monitor_args, perf):
     progress.progress(1.0)
     elapsed = max(time.time() - started, 1e-6)
     status.success(f"Done in {elapsed:.1f}s - {processed} frames analyzed ({processed / elapsed:.1f} fps)")
-    if monitor.last_error:
-        st.warning(monitor.last_error)
     return build_result(monitor, frame_idx, source_name)
 
 
@@ -568,8 +545,6 @@ def analyze_image(image, source_name, monitor_args):
     annotated, info = monitor.process(image, 0.0, 1, track=False, instant=True)
     st.image(annotated, channels="BGR", output_format="JPEG", use_container_width=True)
     render_live({"metrics": st.empty(), "alerts": st.empty()}, info, monitor)
-    if monitor.last_error:
-        st.warning(monitor.last_error)
     return build_result(monitor, 1, source_name)
 
 
@@ -589,6 +564,8 @@ def show_report(result):
     df["severity_icon"] = df["severity"].map(lambda s: f"{SEV_ICON[s]} {s}")
 
     high, medium = int((df["severity"] == "HIGH").sum()), int((df["severity"] == "MEDIUM").sum())
+    
+    # تصفية محددة لحساب حالات الغش الحقيقية (HIGH أو MEDIUM فقط المعلمة بطالب)
     flagged_df = df[(df["student"] != "Exam area") & (df["severity"].isin(["HIGH", "MEDIUM"]))]
     flagged = flagged_df["student"].nunique()
 
@@ -611,7 +588,9 @@ def show_report(result):
         total_seconds=("duration_sec", "sum"),
         violations=("event", lambda s: " | ".join(sorted(set(s)))),
     ).reset_index()
-    rank["score"] = rank["high"] * 3 + rank["medium"] * 2 + (rank["incidents"] - rank["high"] - rank["medium"])
+    rank["score"] = rank["high"] * 3 + rank["medium"] * 2
+    
+    # إظهار الطلاب الذين تمت إدانتهم بالغش الفعلي أولاً
     st.dataframe(rank.sort_values("score", ascending=False), use_container_width=True, hide_index=True)
 
     st.subheader("Incident timeline")
@@ -636,7 +615,6 @@ def show_report(result):
 # ----------------------------------------------------------------------------
 st.set_page_config(page_title="Exam Cheating Detection System", page_icon="🎓", layout="wide")
 st.title(f"🎓 Exam Cheating Detection & Monitoring System  ·  {APP_VERSION}")
-st.caption("High accuracy per-student incident and behavior detection")
 
 st.sidebar.header("⚡ Speed Preset")
 preset = st.sidebar.selectbox("Speed preset", list(PRESETS), index=0)
@@ -647,8 +625,8 @@ use_custom = st.sidebar.checkbox("1. Custom trained model (best.pt)", value=True
 custom_path = st.sidebar.text_input("Weights path", "weights/best.pt")
 custom_upload = st.sidebar.file_uploader("...or upload best.pt", type=["pt"])
 use_pose = st.sidebar.checkbox("2. Pose model", value=True)
-pose_name = st.sidebar.selectbox("Pose weights", ["yolo11n-pose.pt", "yolo11s-pose.pt", "yolov8n-pose.pt"])
-use_objects = st.sidebar.checkbox("3. Generic objects (phone / book)", value=True)
+pose_name = st.sidebar.selectbox("Pose weights", ["yolo11n-pose.pt", "yolo11s-pose.pt"])
+use_objects = st.sidebar.checkbox("3. Generic objects", value=True)
 obj_name = st.sidebar.selectbox("Object weights", ["yolo11s.pt", "yolo11n.pt"])
 imgsz = st.sidebar.select_slider("Inference size", options=[640, 800, 960, 1280], value=PS["imgsz"])
 
@@ -673,16 +651,15 @@ pose_model, pose_err = load_model(pose_name, "yolov8n-pose.pt") if use_pose else
 obj_model, obj_err = load_model(obj_name, "yolov8s.pt") if use_objects else (None, None)
 
 st.sidebar.header("🎯 Detection rules")
-person_conf = st.sidebar.slider("Student confidence", 0.10, 0.90, 0.35, 0.05)
-object_conf = st.sidebar.slider("Generic item confidence", 0.10, 0.90, 0.25, 0.05)
+person_conf = st.sidebar.slider("Student confidence", 0.10, 0.90, 0.40, 0.05)
+object_conf = st.sidebar.slider("Generic item confidence", 0.10, 0.90, 0.30, 0.05)
 custom_conf = st.sidebar.slider("Trained model confidence", 0.10, 0.90, 0.35, 0.05)
-yaw_threshold = st.sidebar.slider("Head-turn threshold", 0.10, 0.80, 0.30, 0.05)
+yaw_threshold = st.sidebar.slider("Head-turn threshold", 0.10, 0.80, 0.35, 0.05)
 head_seconds = st.sidebar.slider("Head turn must last (sec)", 0.0, 5.0, 1.5, 0.5)
 object_seconds = st.sidebar.slider("Item visible for (sec)", 0.0, 5.0, 0.5, 0.5)
-neighbor_reach = st.sidebar.slider("Neighbor reach", 1.0, 5.0, 2.5, 0.5)
+neighbor_reach = st.sidebar.slider("Neighbor reach", 1.0, 5.0, 2.0, 0.5)
 prohibited = st.sidebar.multiselect("Prohibited generic items", list(OBJECT_INFO), default=list(OBJECT_INFO))
 check_head = st.sidebar.checkbox("Detect head turn / looking at neighbor", value=True)
-check_backward = st.sidebar.checkbox("Looking backward / turned away", value=True)
 show_debug = st.sidebar.checkbox("Show debug values", value=False)
 
 st.sidebar.header("🚀 Performance")
@@ -704,7 +681,7 @@ settings = Settings(
     imgsz=imgsz, person_conf=person_conf, object_conf=object_conf, custom_conf=custom_conf,
     yaw_threshold=yaw_threshold, object_every=object_every, head_seconds=head_seconds, object_seconds=object_seconds,
     hand_seconds=1.0, neighbor_reach=neighbor_reach, prohibited=prohibited,
-    custom_classes=custom_classes, check_head=check_head, check_hands=False, check_backward=check_backward, check_standing=False, check_phone_pose=False,
+    custom_classes=custom_classes, check_head=check_head, check_hands=False, check_backward=False, check_standing=False, check_phone_pose=False,
     check_head_down=False, backward_seconds=2.0, show_debug=show_debug,
 )
 monitor_args = (pose_model, obj_model, custom_model, settings)
