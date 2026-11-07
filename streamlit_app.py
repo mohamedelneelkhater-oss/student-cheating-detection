@@ -1,5 +1,5 @@
 """
-Exam Cheating Detection System  -  v4.7 Foreground Precision & Smart Filtering (Single-file Streamlit app)
+Exam Cheating Detection System  -  v4.8 Universal Multi-Student Precision (Single-file Streamlit app)
 """
 
 import os
@@ -22,7 +22,7 @@ try:
 except ImportError:
     YOLO_AVAILABLE = False
 
-APP_VERSION = "v4.7 FOREGROUND PRECISION"
+APP_VERSION = "v4.8 MULTI-STUDENT UNIVERSAL PRECISION"
 
 # ----------------------------------------------------------------------------
 # Constants & Settings
@@ -32,8 +32,8 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 DEFAULT_DATASET_DIRS = ["samples", "data", "dataset", "/kaggle/input"]
 PAGE_HOSTS = ("youtube.com", "youtu.be", "vimeo.com", "facebook.com", "tiktok.com", "dailymotion.com")
 
-KP_CONF = 0.35
-MIN_PERSON_AREA = 2500  # رفع الحد الأدنى لتجاهل الأشخاص البعيدين في الخلفية
+KP_CONF = 0.30
+MIN_PERSON_AREA = 800  # خفض الحد الأدنى لضمان التقاط جميع الطلاب في القاعة مهما كان حجمهم
 MAX_EVIDENCE = 60
 NORMAL_WORDS = ("normal", "not_cheat", "not cheat", "no_cheat", "non_cheat", "non-cheat", "honest", "clean")
 
@@ -55,7 +55,7 @@ PRESETS = {
 
 
 # ----------------------------------------------------------------------------
-# Geometry & Foreground Filtering Helpers
+# Geometry & Unique Student Fusion Helpers
 # ----------------------------------------------------------------------------
 def inside(box, x, y):
     return box[0] <= x <= box[2] and box[1] <= y <= box[3]
@@ -96,7 +96,7 @@ def find_neighbor(person, direction, persons, reach):
         dy = (oy1 + oy2) / 2 - cy
         if (direction == "LEFT" and dx >= 0) or (direction == "RIGHT" and dx <= 0):
             continue
-        if abs(dx) > reach * w or abs(dy) > 0.8 * h:
+        if abs(dx) > reach * w or abs(dy) > 1.2 * h:
             continue
         if best is None or abs(dx) < best[1]:
             best = (o["id"], abs(dx))
@@ -134,13 +134,34 @@ def dedupe_objects(objects):
     return kept
 
 
+def dedupe_persons_across_video(all_person_boxes):
+    """إزالة تكرار الطلاب عبر الإطارات المختلفة بناءً على تقارب المراكز الهندسية لحساب عدد الطلاب الفريدين الفعليين بدقة."""
+    if not all_person_boxes:
+        return []
+    unique_students = []
+    for box in all_person_boxes:
+        x1, y1, x2, y2 = box
+        cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
+        matched = False
+        for u in unique_students:
+        # إذا كان مركز الشخص قريباً جداً من شخص مسجل مسبقاً، نعتبره نفس الطالب
+            ux1, uy1, ux2, uy2 = u
+            ucx, ucy = (ux1 + ux2) / 2, (uy1 + uy2) / 2
+            if abs(cx - ucx) < 50 and abs(cy - ucy) < 50:
+                matched = True
+                break
+        if not matched:
+            unique_students.append(box)
+    return len(unique_students)
+
+
 def fmt_time(seconds):
     seconds = max(float(seconds), 0.0)
     return f"{int(seconds // 60):02d}:{seconds % 60:04.1f}"
 
 
 # ----------------------------------------------------------------------------
-# Incident Manager & Strict Foreground Filtering
+# Incident Manager
 # ----------------------------------------------------------------------------
 class IncidentManager:
     def __init__(self, grace=1.5):
@@ -235,35 +256,6 @@ def consolidate_student_ids(events):
     return events
 
 
-def filter_foreground_events(events):
-    """استبعاد أي تنبيهات تخص طلاب الخلفية البعيدين وحصر النتائج في الطلاب النشطين بالمقدمة بدقة."""
-    if not events:
-        return events
-    
-    # حساب مجموع نقاط الخطورة لكل طالب
-    student_scores = {}
-    for ev in events:
-        sid = ev.get("student")
-        if sid is not None:
-            sev = ev.get("severity", "LOW")
-            dur = ev.get("duration_sec", 0.0)
-            score = SEV_ORDER.get(sev, 1) * 3 + dur
-            student_scores[sid] = student_scores.get(sid, 0) + score
-
-    if not student_scores:
-        return events
-
-    # تحديد أعلى طلاب نشاطاً (عادة طالبين أساسيين في فيديوهات التبادل)
-    sorted_students = sorted(student_scores.keys(), key=lambda s: student_scores[s], reverse=True)
-    
-    # إذا وُجد أكثر من طالبين، نأخذ فقط أعلى طالبين أو الثلاثة الأقرب للحدث الحقيقي ونستبعد الخلفية الهامشية
-    # في حال كان الفيديو لطالبين يتم أخذ أعلى طالبين فقط
-    primary_students = sorted_students[:2] if len(sorted_students) >= 2 else sorted_students
-
-    filtered = [ev for ev in events if ev.get("student") in primary_students or ev.get("student") is None]
-    return filtered if filtered else events
-
-
 # ----------------------------------------------------------------------------
 # Exam Monitor Core Engine
 # ----------------------------------------------------------------------------
@@ -316,12 +308,8 @@ class ExamMonitor:
         for box, pid, kp in zip(xyxy, ids, kps):
             x1, y1, x2, y2 = [float(v) for v in box]
             area = (x2 - x1) * (y2 - y1)
-            # فلترة متقدمة: تجاهل الأشخاص الصغار في الخلفية (حيث y2 مرتفع أو المساحة صغيرة جداً مقارنة بالمقدمة)
             if area >= MIN_PERSON_AREA:
                 persons.append({"id": int(pid), "box": (x1, y1, x2, y2), "kp": kp, "area": area})
-        
-        # ترتيب الأشخاص حسب القرب (المساحة الأكبر أو الموقع الأسفل في الإطار يمثل المقدمة)
-        persons = sorted(persons, key=lambda p: p["box"][3], reverse=True)
         return persons
 
     def _run_detector(self, model, class_ids, conf, frame, source):
@@ -370,10 +358,7 @@ class ExamMonitor:
         objects = [dict(o) for o in self.cached_objects]
         conditions, yaw_map = {}, {}
 
-        # نركز فقط على أول طالبين أو ثلاثة في المقدمة لتجنب ضوضاء الخلفية
-        active_persons = persons[:3] if len(persons) >= 3 else persons
-
-        for p in active_persons:
+        for p in persons:
             sid = p["id"]
             raw_yaw, _, visible = analyze_head(p["kp"], s.yaw_threshold)
             yaw = None
@@ -387,7 +372,7 @@ class ExamMonitor:
                 direction = "LEFT" if yaw < -s.yaw_threshold else ("RIGHT" if yaw > s.yaw_threshold else None)
 
             if direction and s.check_head:
-                nb = find_neighbor(p, direction, active_persons, s.neighbor_reach)
+                nb = find_neighbor(p, direction, persons, s.neighbor_reach)
                 if nb is not None:
                     conditions[("head", sid)] = dict(
                         student=sid, severity="HIGH", category="Copying from neighbor",
@@ -400,7 +385,7 @@ class ExamMonitor:
                         min_sec=s.head_seconds + 0.5, box=p["box"])
 
         for o in objects:
-            owner = assign_owner(o["box"], active_persons)
+            owner = assign_owner(o["box"], persons)
             where = f"Student #{owner}" if owner is not None else "the exam area"
             o["owner"] = owner
             if o["source"] == "coco":
@@ -414,21 +399,6 @@ class ExamMonitor:
             conditions[("obj", o["track"])] = dict(
                 student=owner, severity=sev, category=category, label=text,
                 min_sec=s.object_seconds, grace=4.0, box=o["box"])
-
-        # ربط الشريكين تلقائياً في حال حدوث تفاعل تبادل بين طالبين في المقدمة
-        active_head_students = [c["student"] for k, c in conditions.items() if k[0] == "head" and c["student"] is not None]
-        if active_head_students and len(active_persons) >= 2:
-            for active_sid in active_head_students:
-                active_p = next((p for p in active_persons if p["id"] == active_sid), None)
-                if active_p:
-                    neighbor_id = find_neighbor(active_p, "LEFT" if yaw_map.get(active_sid, 0) < 0 else "RIGHT", active_persons, s.neighbor_reach)
-                    if neighbor_id is not None:
-                        neighbor_p = next((p for p in active_persons if p["id"] == neighbor_id), None)
-                        if neighbor_p and ("head", neighbor_id) not in conditions:
-                            conditions[("head_partner", neighbor_id)] = dict(
-                                student=neighbor_id, severity="HIGH", category="Copying from neighbor",
-                                label=f"Involved in note/paper exchange with Student #{active_sid}",
-                                min_sec=0.2, box=neighbor_p["box"])
 
         if instant:
             for c in conditions.values():
@@ -444,7 +414,7 @@ class ExamMonitor:
         annotated = self._annotate(frame, persons, objects, sev_by_student, yaw_map)
         for ev in new_events:
             self.incidents.attach_evidence(ev, annotated)
-        return annotated, {"students": len(active_persons), "active": active, "new": new_events}
+        return annotated, {"students": len(persons), "active": active, "new": new_events, "person_boxes": [p["box"] for p in persons]}
 
     def _annotate(self, frame, persons, objects, sev_by_student, yaw_map):
         out = frame.copy()
@@ -537,7 +507,7 @@ def resolve_url(url):
 
 
 # ----------------------------------------------------------------------------
-# UI Rendering & Metrics
+# UI Rendering & Live Metrics
 # ----------------------------------------------------------------------------
 def alarm_html():
     return (f'<audio autoplay data-t="{time.time()}">'
@@ -545,20 +515,19 @@ def alarm_html():
             'type="audio/mpeg"></audio>')
 
 
-def render_live(widgets, info, monitor):
+def render_live(widgets, info, monitor, total_detected_count):
     active = info["active"]
     top = max((SEV_ORDER[e["severity"]] for e in monitor.incidents.events), default=0)
     top_name = {0: "None ✅", 1: "Low 🟡", 2: "Medium 🟠", 3: "High 🔴"}[top]
     
     temp_events = list(monitor.incidents.events)
     consolidate_student_ids(temp_events)
-    temp_events = filter_foreground_events(temp_events)
     
     flagged_students = {e["student"] for e in temp_events if e["student"] is not None and SEV_ORDER[e["severity"]] >= 2}
 
     with widgets["metrics"].container():
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Students detected", info["students"])
+        c1.metric("Students detected", total_detected_count)
         c2.metric("Active incidents", len(active))
         c3.metric("Students flagged (cheating)", len(flagged_students))
         c4.metric("Highest risk so far", top_name)
@@ -572,15 +541,15 @@ def render_live(widgets, info, monitor):
             st.success("✨ No active incidents.")
 
 
-def build_result(monitor, frames, source_name):
+def build_result(monitor, frames, source_name, total_detected_count):
     consolidate_student_ids(monitor.incidents.events)
-    monitor.incidents.events = filter_foreground_events(monitor.incidents.events)
     return {
         "events": list(monitor.incidents.events),
         "evidence": list(monitor.incidents.evidence),
         "frames": frames,
         "source": source_name,
         "finished": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "total_students": total_detected_count,
     }
 
 
@@ -598,6 +567,7 @@ def analyze_video(source, source_name, monitor_args, perf):
     widgets = {"metrics": st.empty(), "alerts": st.empty()}
     sound_slot = st.empty()
     frame_idx, processed, last_sound, started = 0, 0, 0.0, time.time()
+    all_video_person_boxes = []
 
     while True:
         if not cap.grab():
@@ -617,10 +587,13 @@ def analyze_video(source, source_name, monitor_args, perf):
 
         annotated, info = monitor.process(frame, frame_idx / fps, frame_idx, track=True)
         processed += 1
+        all_video_person_boxes.extend(info.get("person_boxes", []))
+
+        current_unique_count = dedupe_persons_across_video(all_video_person_boxes)
 
         if not perf.turbo and (processed % perf.preview_every == 0 or info["new"]):
             frame_slot.image(annotated, channels="BGR", output_format="JPEG", use_container_width=True)
-            render_live(widgets, info, monitor)
+            render_live(widgets, info, monitor, current_unique_count)
         if total > 0 and processed % 5 == 0:
             progress.progress(min(frame_idx / total, 1.0))
 
@@ -630,17 +603,19 @@ def analyze_video(source, source_name, monitor_args, perf):
 
     cap.release()
     progress.progress(1.0)
+    final_unique_count = dedupe_persons_across_video(all_video_person_boxes)
     elapsed = max(time.time() - started, 1e-6)
     status.success(f"Done in {elapsed:.1f}s - {processed} frames analyzed ({processed / elapsed:.1f} fps)")
-    return build_result(monitor, frame_idx, source_name)
+    return build_result(monitor, frame_idx, source_name, final_unique_count)
 
 
 def analyze_image(image, source_name, monitor_args):
     monitor = ExamMonitor(*monitor_args)
     annotated, info = monitor.process(image, 0.0, 1, track=False, instant=True)
     st.image(annotated, channels="BGR", output_format="JPEG", use_container_width=True)
-    render_live({"metrics": st.empty(), "alerts": st.empty()}, info, monitor)
-    return build_result(monitor, 1, source_name)
+    unique_count = len(info.get("person_boxes", []))
+    render_live({"metrics": st.empty(), "alerts": st.empty()}, info, monitor, unique_count)
+    return build_result(monitor, 1, source_name, unique_count)
 
 
 # ----------------------------------------------------------------------------
@@ -649,7 +624,7 @@ def analyze_image(image, source_name, monitor_args):
 def show_report(result):
     st.markdown("---")
     st.header("📋 Comprehensive Exam Analytics & Incident Report")
-    st.caption(f"Source: {result['source']}  |  Frames read: {result['frames']}  |  Finished: {result['finished']}")
+    st.caption(f"Source: {result['source']}  |  Total Students Detected: {result.get('total_students', 0)}  |  Finished: {result['finished']}")
 
     events = result["events"]
     if not events:
@@ -668,12 +643,12 @@ def show_report(result):
     flagged = len(flagged_students_list)
 
     if flagged:
-        st.error(f"⚠️ {flagged} student(s) flagged for possible cheating: {', '.join(flagged_students_list)}")
+        st.error(f"⚠️ {flagged} student(s) flagged for possible cheating: {', '.join(str(s) for s in flagged_students_list)}")
     else:
         st.info("Only low-severity observations were recorded.")
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Total Cheating Students", flagged)
+    c1.metric("Total Unique Students", result.get("total_students", 0))
     c2.metric("Total Recorded Incidents", len(df))
     c3.metric("High Severity Violations", high)
     c4.metric("Medium Severity Violations", medium)
@@ -714,7 +689,7 @@ def show_report(result):
 # ----------------------------------------------------------------------------
 st.set_page_config(page_title="Universal Exam Cheating Detection System", page_icon="🎓", layout="wide")
 st.title(f"🎓 Universal Exam Cheating Detection & Analytics System  ·  {APP_VERSION}")
-st.caption("Foreground precision filtering: Eliminates background noise and accurately targets interactive cheating pairs.")
+st.caption("Advanced multi-student unique tracking & deduplication across all video frames.")
 
 st.sidebar.header("⚡ Speed Preset")
 preset = st.sidebar.selectbox("Speed preset", list(PRESETS), index=0)
@@ -751,7 +726,7 @@ pose_model, pose_err = load_model(pose_name, "yolov8n-pose.pt") if use_pose else
 obj_model, obj_err = load_model(obj_name, "yolov8s.pt") if use_objects else (None, None)
 
 st.sidebar.header("🎯 Detection rules")
-person_conf = st.sidebar.slider("Student confidence", 0.10, 0.90, 0.40, 0.05)
+person_conf = st.sidebar.slider("Student confidence", 0.10, 0.90, 0.35, 0.05)
 object_conf = st.sidebar.slider("Generic item confidence", 0.10, 0.90, 0.30, 0.05)
 custom_conf = st.sidebar.slider("Trained model confidence", 0.10, 0.90, 0.35, 0.05)
 yaw_threshold = st.sidebar.slider("Head-turn threshold", 0.10, 0.80, 0.30, 0.05)
