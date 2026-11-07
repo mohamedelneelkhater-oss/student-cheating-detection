@@ -1,5 +1,5 @@
 """
-Exam Cheating Detection & Analytics System  -  v20.0 ASCII-Safe Version (Single-file Streamlit app)
+Exam Cheating Detection & Analytics System  -  v21.0 Turbo-Fast & ASCII-Safe (Single-file Streamlit app)
 """
 
 import os
@@ -22,7 +22,7 @@ try:
 except ImportError:
     YOLO_AVAILABLE = False
 
-APP_VERSION = "v20.0 ASCII-SAFE"
+APP_VERSION = "v21.0 TURBO-FAST"
 
 # ----------------------------------------------------------------------------
 # Constants & Settings
@@ -47,8 +47,9 @@ SEV_ORDER = {"NONE": 0, "LOW": 1, "MEDIUM": 2, "HIGH": 3}
 SEV_COLOR = {"NONE": (0, 200, 0), "LOW": (0, 220, 255), "MEDIUM": (0, 165, 255), "HIGH": (0, 0, 255)}
 SEV_ICON = {"LOW": "LOW", "MEDIUM": "MED", "HIGH": "HIGH"}
 
+# إعدادات السرعة القصوى المحدثة لتسريع الزر فوراً
 PRESETS = {
-    "Fast": dict(imgsz=640, frame_skip=5, object_every=3, max_width=640, preview_every=5),
+    "Fast": dict(imgsz=480, frame_skip=10, object_every=5, max_width=480, preview_every=1),
     "Balanced": dict(imgsz=800, frame_skip=3, object_every=2, max_width=960, preview_every=3),
     "Accurate": dict(imgsz=960, frame_skip=2, object_every=1, max_width=1280, preview_every=2),
 }
@@ -721,7 +722,7 @@ def show_report(result):
 # ----------------------------------------------------------------------------
 st.set_page_config(page_title="Universal Exam Cheating Detection System", page_icon="🎓", layout="wide")
 st.title(f"Universal Exam Cheating Detection & Analytics System - {APP_VERSION}")
-st.caption("ASCII-Safe Version: Fixed string literals and encoding issues.")
+st.caption("Turbo-Fast Version: Optimized frame skipping and reduced resolution for instant analysis.")
 
 st.sidebar.header("Speed Preset")
 preset = st.sidebar.selectbox("Speed preset", list(PRESETS), index=0)
@@ -735,7 +736,7 @@ use_pose = st.sidebar.checkbox("2. Pose model (Head/Body tracking)", value=True)
 pose_name = st.sidebar.selectbox("Pose weights", ["yolov8n-pose.pt", "yolo11n-pose.pt"])
 use_objects = st.sidebar.checkbox("3. Generic objects (Phones / Books)", value=True)
 obj_name = st.sidebar.selectbox("Object weights", ["yolov8s.pt", "yolo11s.pt"])
-imgsz = st.sidebar.select_slider("Inference size", options=[640, 800, 960, 1280], value=PS["imgsz"])
+imgsz = st.sidebar.select_slider("Inference size", options=[320, 480, 640, 800, 960], value=PS["imgsz"])
 
 custom_model, custom_err, custom_classes = None, None, []
 if use_custom:
@@ -775,11 +776,11 @@ check_head = st.sidebar.checkbox("Detect head turn / looking at neighbor", value
 show_debug = st.sidebar.checkbox("Show debug values", value=False)
 
 st.sidebar.header("Performance")
-frame_skip = st.sidebar.slider("Process every Nth frame", 1, 10, PS["frame_skip"])
-object_every = st.sidebar.slider("Run item detectors every Nth frame", 1, 6, PS["object_every"])
-max_width = st.sidebar.select_slider("Max frame width", options=[480, 640, 960, 1280], value=PS["max_width"])
+frame_skip = st.sidebar.slider("Process every Nth frame", 1, 30, PS["frame_skip"])
+object_every = st.sidebar.slider("Run item detectors every Nth frame", 1, 10, PS["object_every"])
+max_width = st.sidebar.select_slider("Max frame width", options=[320, 480, 640, 960, 1280], value=PS["max_width"])
 turbo = st.sidebar.checkbox("Turbo mode (no live video)", value=False)
-preview_every = st.sidebar.slider("Live preview every Nth frame", 1, 20, PS["preview_every"])
+preview_every = st.sidebar.slider("Live preview every Nth frame", 1, 30, PS["preview_every"])
 max_seconds = st.sidebar.number_input("Analyze first N seconds (0 = all)", min_value=0, value=0, step=10)
 sound_on = st.sidebar.checkbox("Alarm sound", value=True)
 perf = Settings(frame_skip=frame_skip, max_width=max_width, turbo=turbo, preview_every=preview_every,
