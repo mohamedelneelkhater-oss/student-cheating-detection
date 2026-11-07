@@ -1,5 +1,5 @@
 """
-Exam Cheating Detection & Analytics System  -  v18.0 Final Error-Free Version (Single-file Streamlit app)
+Exam Cheating Detection & Analytics System  -  v19.0 Ultra-Clean & Production Ready (Single-file Streamlit app)
 """
 
 import os
@@ -22,7 +22,7 @@ try:
 except ImportError:
     YOLO_AVAILABLE = False
 
-APP_VERSION = "v18.0 FINAL ERROR-FREE"
+APP_VERSION = "v19.0 ULTRA-CLEAN"
 
 # ----------------------------------------------------------------------------
 # Constants & Settings
@@ -55,7 +55,7 @@ PRESETS = {
 
 
 # ----------------------------------------------------------------------------
-# Precise Detection & Box Fusion Helpers
+# Helpers
 # ----------------------------------------------------------------------------
 def inside(box, x, y):
     return box[0] <= x <= box[2] and box[1] <= y <= box[3]
@@ -77,21 +77,17 @@ def compute_iou(box1, box2):
 def filter_clean_persons(persons, iou_threshold=0.25):
     if not persons:
         return []
-    
     sorted_persons = sorted(persons, key=lambda p: (p["box"][2] - p["box"][0]) * (p["box"][3] - p["box"][1]), reverse=True)
     kept = []
-    
     for p in sorted_persons:
         should_keep = True
         for k in kept:
             box1, box2 = p["box"], k["box"]
             iou = compute_iou(box1, box2)
-            
             x1, y1 = max(box1[0], box2[0]), max(box1[1], box2[1])
             x2, y2 = min(box1[2], box2[2]), min(box1[3], box2[3])
             inter = max(0, x2 - x1) * max(0, y2 - y1)
             area1 = (box1[2] - box1[0]) * (box1[3] - box1[1])
-            
             if iou > iou_threshold or (area1 > 0 and inter / area1 > 0.6):
                 should_keep = False
                 break
@@ -725,7 +721,7 @@ def show_report(result):
 # ----------------------------------------------------------------------------
 st.set_page_config(page_title="Universal Exam Cheating Detection System", page_icon="🎓", layout="wide")
 st.title(f"🎓 Universal Exam Cheating Detection & Analytics System  ·  {APP_VERSION}")
-st.caption("Final Error-Free Version: Fully corrected syntax, robust reporting, and accurate multi-student analysis.")
+st.caption("Ultra-Clean Version: Clean structure, robust execution, and accurate multi-student analytics.")
 
 st.sidebar.header("⚡ Speed Preset")
 preset = st.sidebar.selectbox("Speed preset", list(PRESETS), index=0)
@@ -803,67 +799,4 @@ settings = Settings(
 monitor_args = (pose_model, obj_model, custom_model, settings)
 
 if pose_model is None and obj_model is None and custom_model is None:
-    st.info("ℹ️ Please ensure at least one detection model is active or select standard YOLO weights in the sidebar.")
-
-
-def store(result):
-    if result is not None:
-        st.session_state["report"] = result
-
-
-if source_option == "Upload from device":
-    st.markdown("### 📁 Analyze a video from your device")
-    uploaded = st.file_uploader("Upload a video (MP4, AVI, MOV, MKV, WEBM)", type=[e.strip(".") for e in VIDEO_EXTENSIONS])
-    if uploaded and st.button("▶️ Start analysis", type="primary"):
-        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(uploaded.name).suffix or ".mp4") as tmp:
-            tmp.write(uploaded.read())
-            tmp_path = tmp.name
-        try:
-            store(analyze_video(tmp_path, uploaded.name, monitor_args, perf))
-        finally:
-            if os.path.exists(tmp_path):
-                os.remove(tmp_path)
-
-elif source_option == "Internet link":
-    st.markdown("### 🌐 Analyze a video from the internet")
-    url = st.text_input("Video link:")
-    if url and st.button("▶️ Start analysis", type="primary"):
-        with st.spinner("Preparing the video..."):
-            source, tmp_dir, err = resolve_url(url)
-        if err:
-            st.error(err)
-        else:
-            try:
-                store(analyze_video(source, url, monitor_args, perf))
-            finally:
-                if tmp_dir:
-                    shutil.rmtree(tmp_dir, ignore_errors=True)
-
-elif source_option == "Original dataset (videos / images)":
-    st.markdown("### 🗂️ Analyze files from your original dataset")
-    dirs_text = st.sidebar.text_area("Dataset folders", value="\n".join(DEFAULT_DATASET_DIRS), height=110)
-    search_dirs = tuple(d for d in dirs_text.splitlines() if d.strip())
-    videos, images = find_dataset_files(search_dirs)
-    st.write(f"Found **{len(videos)}** video(s) and **{len(images)}** image(s).")
-
-    kind = st.radio("File type", ["Videos", "Images"], horizontal=True)
-    files = videos if kind == "Videos" else images
-    if files:
-        selected = st.selectbox("Select a file:", files)
-        if kind == "Videos":
-            if st.button("▶️ Start analysis", type="primary"):
-                store(analyze_video(selected, Path(selected).name, monitor_args, perf))
-        else:
-            img = cv2.imread(selected)
-            if img is not None and st.button("▶️ Analyze image", type="primary"):
-                store(analyze_image(img, Path(selected).name, monitor_args))
-
-else:
-    st.markdown("### 📷 Device camera snapshot")
-    snapshot = st.camera_input("Take a picture for instant verification")
-    if snapshot is not None:
-        image = cv2.imdecode(np.frombuffer(snapshot.getvalue(), np.uint8), cv2.IMREAD_COLOR)
-        store(analyze_image(image, "Camera snapshot", monitor_args))
-
-if "report" in st.session_state:
-    show_report(st.session_state["report"])
+    st.info("ℹ️ Please ensure at least one detection model is active or select standard YOLO weights in the
