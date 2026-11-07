@@ -1,5 +1,5 @@
 """
-Exam Cheating Detection System  -  v3.9 Precision Filtering (Single-file Streamlit app)
+Exam Cheating Detection System  -  v4.0 Advanced ID Merging & Precision (Single-file Streamlit app)
 """
 
 import os
@@ -22,7 +22,7 @@ try:
 except ImportError:
     YOLO_AVAILABLE = False
 
-APP_VERSION = "v3.9 STRICT PRECISION"
+APP_VERSION = "v4.0 ULTRA PRECISION"
 
 # ----------------------------------------------------------------------------
 # Constants & Settings
@@ -140,7 +140,7 @@ def fmt_time(seconds):
 
 
 # ----------------------------------------------------------------------------
-# Incident Manager
+# Incident Manager & ID Merging
 # ----------------------------------------------------------------------------
 class IncidentManager:
     def __init__(self, grace=1.2):
@@ -168,6 +168,7 @@ class IncidentManager:
                         "duration_sec": round(t - st_["first"], 2),
                         "frame": frame_idx,
                         "evidence": None,
+                        "box": c.get("box", (0, 0, 0, 0))
                     }
                     self.events.append(ev)
                     st_["event"] = ev
@@ -200,6 +201,46 @@ class IncidentManager:
             self.evidence.append(buf.tobytes())
 
 
+def consolidate_student_ids(events):
+    """دمج الهويات المتطفرة الناتجة عن انقسام تتبع الكاميرا (ID Fragmentation) لشخص واحد."""
+    if not events:
+        return events
+    
+    # تجميع الأحداث حسب الطالب وتقييم إحداثيات صناديقهم
+    student_boxes = {}
+    for ev in events:
+        sid = ev.get("student")
+        if sid is not None:
+            student_boxes.setdefault(sid, []).append(ev.get("box", (0, 0, 0, 0)))
+
+    # حساب مركز كل طالب
+    student_centers = {}
+    for sid, boxes in student_boxes.items():
+        if boxes:
+            arr = np.array(boxes)
+            cx = np.mean((arr[:, 0] + arr[:, 2]) / 2)
+            cy = np.mean((arr[:, 1] + arr[:, 3]) / 2)
+            student_centers[sid] = (cx, cy)
+
+    # دمج الهويات المتقاربة جداً مكانياً (أقل من 80 بكسل) لتصبح هوية واحدة موحدة
+    sids = sorted(student_centers.keys())
+    mapping = {s: s for s in sids}
+    for i in range(len(sids)):
+        for j in range(i + 1, len(sids)):
+            s1, s2 = sids[i], sids[j]
+            c1, c2 = student_centers[s1], student_centers[s2]
+            dist = ((c1[0] - c2[0]) ** 2 + (c1[1] - c2[1]) ** 2) ** 0.5
+            if dist < 85:  # مسافة التقارب للدمج
+                mapping[s2] = mapping[s1]
+
+    for ev in events:
+        sid = ev.get("student")
+        if sid in mapping:
+            ev["student"] = mapping[sid]
+            
+    return events
+
+
 # ----------------------------------------------------------------------------
 # Exam Monitor Core Engine
 # ----------------------------------------------------------------------------
@@ -219,7 +260,6 @@ class ExamMonitor:
         self.cached_objects = []
         self.obj_tracks = []
         self.next_obj_id = 1
-        self.base_h = {}
         self.obj_ids = []
         self.custom_ids = []
         if obj_model is not None:
@@ -314,18 +354,19 @@ class ExamMonitor:
             if yaw is not None:
                 direction = "LEFT" if yaw < -s.yaw_threshold else ("RIGHT" if yaw > s.yaw_threshold else None)
 
-            # التفتيش الدقيق: عدم تصنيف الالتفات الجانبي إلا عند استهداف زميل مباشر فقط
+            # التدقيق: احتساب حالة غش حقيقية فقط إذا وجد زميل قريب في اتجاه النظر
             if direction and s.check_head:
                 nb = find_neighbor(p, direction, persons, s.neighbor_reach)
                 if nb is not None:
                     conditions[("head", sid)] = dict(
                         student=sid, severity="HIGH", category="Copying from neighbor",
-                        label=f"Looking {direction} at Student #{nb} (possible copying)", min_sec=s.head_seconds)
+                        label=f"Looking {direction} at Student #{nb} (possible copying)", 
+                        min_sec=s.head_seconds, box=p["box"])
                 else:
-                    # الالتفات العادي يعطى خطورة منخفضة LOW كي لا يُحسب كحالة غش مؤكدة
                     conditions[("head", sid)] = dict(
                         student=sid, severity="LOW", category="Head turn",
-                        label=f"Head turned {direction} (slight turn)", min_sec=s.head_seconds + 1.0)
+                        label=f"Head turned {direction} (slight turn)", 
+                        min_sec=s.head_seconds + 1.0, box=p["box"])
 
         for o in objects:
             owner = assign_owner(o["box"], persons)
@@ -341,7 +382,7 @@ class ExamMonitor:
             o["label"] = label
             conditions[("obj", o["track"])] = dict(
                 student=owner, severity=sev, category=category, label=text,
-                min_sec=s.object_seconds, grace=4.0)
+                min_sec=s.object_seconds, grace=4.0, box=o["box"])
 
         if instant:
             for c in conditions.values():
@@ -480,6 +521,8 @@ def render_live(widgets, info, monitor):
 
 
 def build_result(monitor, frames, source_name):
+    # دمج الهويات المنقسمة قبل إصدار التقرير النهائي
+    consolidate_student_ids(monitor.incidents.events)
     return {
         "events": list(monitor.incidents.events),
         "evidence": list(monitor.incidents.evidence),
@@ -565,7 +608,6 @@ def show_report(result):
 
     high, medium = int((df["severity"] == "HIGH").sum()), int((df["severity"] == "MEDIUM").sum())
     
-    # تصفية محددة لحساب حالات الغش الحقيقية (HIGH أو MEDIUM فقط المعلمة بطالب)
     flagged_df = df[(df["student"] != "Exam area") & (df["severity"].isin(["HIGH", "MEDIUM"]))]
     flagged = flagged_df["student"].nunique()
 
@@ -590,7 +632,6 @@ def show_report(result):
     ).reset_index()
     rank["score"] = rank["high"] * 3 + rank["medium"] * 2
     
-    # إظهار الطلاب الذين تمت إدانتهم بالغش الفعلي أولاً
     st.dataframe(rank.sort_values("score", ascending=False), use_container_width=True, hide_index=True)
 
     st.subheader("Incident timeline")
