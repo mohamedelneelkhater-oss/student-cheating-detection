@@ -1,5 +1,5 @@
 """
-Exam Cheating Detection System  -  v4.3 Universal & Dynamic Analytics (Single-file Streamlit app)
+Exam Cheating Detection System  -  v4.4 Universal 2-Person Link & Analytics (Single-file Streamlit app)
 """
 
 import os
@@ -22,7 +22,7 @@ try:
 except ImportError:
     YOLO_AVAILABLE = False
 
-APP_VERSION = "v4.3 UNIVERSAL DYNAMIC ANALYTICS"
+APP_VERSION = "v4.4 UNIVERSAL SMART LINK"
 
 # ----------------------------------------------------------------------------
 # Constants & Settings
@@ -140,7 +140,7 @@ def fmt_time(seconds):
 
 
 # ----------------------------------------------------------------------------
-# Incident Manager & Dynamic ID Consolidation
+# Incident Manager & Smart Partner Linking
 # ----------------------------------------------------------------------------
 class IncidentManager:
     def __init__(self, grace=1.2):
@@ -202,7 +202,6 @@ class IncidentManager:
 
 
 def consolidate_student_ids(events):
-    """دمج الهويات المتطفرة الناتجة عن تتبع الكاميرا تلقائياً لأي عدد من الطلاب."""
     if not events:
         return events
     student_boxes = {}
@@ -367,7 +366,7 @@ class ExamMonitor:
             where = f"Student #{owner}" if owner is not None else "the exam area"
             o["owner"] = owner
             if o["source"] == "coco":
-                label, sev = OBJECT_INFO.get(o["name"], (o["name"], "HIGH"))
+                label, sev = OBJECT_INFO.get(o["name"], ("Prohibited item", "HIGH"))
                 category = "Prohibited item"
                 text = f"{label} near {where}"
             else:
@@ -377,6 +376,19 @@ class ExamMonitor:
             conditions[("obj", o["track"])] = dict(
                 student=owner, severity=sev, category=category, label=text,
                 min_sec=s.object_seconds, grace=4.0, box=o["box"])
+
+        # ذكاء إضافي عالمي: إذا كان الفيديو يحتوي على طالبين فقط وتم رصد غش/التفات من أحدهما، يتم تلقائياً ربط الطالب الآخر بالحدث ليكونا معاً طرفي الغش
+        if len(persons) == 2 and any(k[0] == "head" for k in conditions.keys()):
+            p_ids = [p["id"] for p in persons]
+            active_sid = list(conditions.values())[0]["student"]
+            other_sid = [pid for pid in p_ids if pid != active_sid]
+            if other_sid:
+                osid = other_sid[0]
+                other_p = next(p for p in persons if p["id"] == osid)
+                conditions[("head_partner", osid)] = dict(
+                    student=osid, severity="HIGH", category="Copying from neighbor",
+                    label=f"Involved in note/paper exchange with Student #{active_sid}",
+                    min_sec=0.2, box=other_p["box"])
 
         if instant:
             for c in conditions.values():
@@ -501,14 +513,13 @@ def render_live(widgets, info, monitor):
     temp_events = list(monitor.incidents.events)
     consolidate_student_ids(temp_events)
     
-    # حساب ديناميكي كامل لأي طالب ظهرت عنده مخالفة متوسطة أو عالية
     flagged_students = {e["student"] for e in temp_events if e["student"] is not None and SEV_ORDER[e["severity"]] >= 2}
 
     with widgets["metrics"].container():
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Students detected", info["students"])
         c2.metric("Active incidents", len(active))
-        c3.metric("Students flagged (cheating)", len(flagged_students))  # ديناميكي 100% بدون حدود
+        c3.metric("Students flagged (cheating)", len(flagged_students))
         c4.metric("Highest risk so far", top_name)
         
     with widgets["alerts"].container():
@@ -591,7 +602,7 @@ def analyze_image(image, source_name, monitor_args):
 
 
 # ----------------------------------------------------------------------------
-# Comprehensive Excel-like Analytics & Report
+# Comprehensive Analytics & Report
 # ----------------------------------------------------------------------------
 def show_report(result):
     st.markdown("---")
@@ -610,7 +621,6 @@ def show_report(result):
 
     high, medium = int((df["severity"] == "HIGH").sum()), int((df["severity"] == "MEDIUM").sum())
     
-    # حساب ديناميكي شامل لجميع الطلاب الذين ارتكبوا مخالفات حقيقية
     flagged_df = df[(df["student"] != "Exam area") & (df["severity"].isin(["HIGH", "MEDIUM"]))]
     flagged_students_list = flagged_df["student"].unique().tolist()
     flagged = len(flagged_students_list)
@@ -620,14 +630,12 @@ def show_report(result):
     else:
         st.info("Only low-severity observations were recorded.")
 
-    # لوحة المؤشرات الرئيسية (Excel-like Summary Cards)
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Total Cheating Students", flagged)
     c2.metric("Total Recorded Incidents", len(df))
     c3.metric("High Severity Violations", high)
     c4.metric("Medium Severity Violations", medium)
 
-    # التحليل المتقدم للبيانات (Groupby / Pivot Style Analytics)
     st.subheader("📊 Advanced Student Analytics (Python / Excel Pivot Summary)")
     rank = df.groupby("student").agg(
         total_incidents=("id", "count"),
@@ -637,7 +645,6 @@ def show_report(result):
         violation_types=("event", lambda s: " | ".join(sorted(set(s)))),
     ).reset_index()
     
-    # حساب درجات الخطورة الإجمالية لترتيب جدول التحليل
     rank["risk_score"] = rank["high_severity"] * 3 + rank["medium_severity"] * 2
     rank = rank.sort_values(by=["risk_score", "total_violation_seconds"], ascending=False)
     
