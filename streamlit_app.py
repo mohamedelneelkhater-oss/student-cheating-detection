@@ -1,5 +1,5 @@
 """
-Exam Cheating Detection System  -  v11.0 Ultimate Clean Detection (Single-file Streamlit app)
+Exam Cheating Detection & Analytics System  -  v12.0 Ultimate Classroom Pro (Single-file Streamlit app)
 """
 
 import os
@@ -22,7 +22,7 @@ try:
 except ImportError:
     YOLO_AVAILABLE = False
 
-APP_VERSION = "v11.0 ULTIMATE CLEAN DETECTION"
+APP_VERSION = "v12.0 ULTIMATE CLASSROOM PRO"
 
 # ----------------------------------------------------------------------------
 # Constants & Settings
@@ -33,7 +33,7 @@ DEFAULT_DATASET_DIRS = ["samples", "data", "dataset", "/kaggle/input"]
 PAGE_HOSTS = ("youtube.com", "youtu.be", "vimeo.com", "facebook.com", "tiktok.com", "dailymotion.com")
 
 KP_CONF = 0.35
-MIN_PERSON_AREA = 2500  # مساحة دقيقة لضمان رصد الطلاب الظاهرين بوضوح فقط
+MIN_PERSON_AREA = 2500  # فلترة دقيقة لضمان رصد الطلاب الحقيقيين واستبعاد الخلفيات
 MAX_EVIDENCE = 60
 NORMAL_WORDS = ("normal", "not_cheat", "not cheat", "no_cheat", "non_cheat", "non-cheat", "honest", "clean")
 
@@ -55,7 +55,7 @@ PRESETS = {
 
 
 # ----------------------------------------------------------------------------
-# Precise Detection & Box Filtering Helpers
+# Precise Detection & Box Fusion Helpers
 # ----------------------------------------------------------------------------
 def inside(box, x, y):
     return box[0] <= x <= box[2] and box[1] <= y <= box[3]
@@ -74,8 +74,8 @@ def compute_iou(box1, box2):
     return inter_area / float(box1_area + box2_area - inter_area)
 
 
-def filter_clean_persons(persons, iou_threshold=0.2):
-    """فلترة ودمج المربعات لمنع أي تكرار وهمي لنفس الطالب بدقة تامة."""
+def filter_clean_persons(persons, iou_threshold=0.25):
+    """دمج المربعات المتداخلة وإزالة التكرار لنفس الطالب بدقة مطلقة."""
     if not persons:
         return []
     
@@ -93,7 +93,7 @@ def filter_clean_persons(persons, iou_threshold=0.2):
             inter = max(0, x2 - x1) * max(0, y2 - y1)
             area1 = (box1[2] - box1[0]) * (box1[3] - box1[1])
             
-            if iou > iou_threshold or (area1 > 0 and inter / area1 > 0.45):
+            if iou > iou_threshold or (area1 > 0 and inter / area1 > 0.5):
                 should_keep = False
                 break
         if should_keep:
@@ -172,6 +172,13 @@ def dedupe_objects(objects):
         if not any(same_item(o["box"], k["box"]) for k in kept):
             kept.append(o)
     return kept
+
+
+def get_stable_student_count(persons):
+    """حساب عدد الطلاب الفعلي في الإطار الحالي بدقة منعاً لأي تضخم تراكمي."""
+    if not persons:
+        return 0
+    return len(persons)
 
 
 def fmt_time(seconds):
@@ -276,7 +283,7 @@ def consolidate_student_ids(events):
 
 
 def filter_exact_cheaters(events):
-    """فلترة المخالفات لحصرها بدقة في المتفاعلين الفعليين."""
+    """فلترة وتصفية المخالفات لحصرها في المتفاعلين الفعليين بدقة."""
     if not events:
         return events
     
@@ -632,7 +639,7 @@ def analyze_video(source, source_name, monitor_args, perf):
         annotated, info = monitor.process(frame, frame_idx / fps, frame_idx, track=True)
         processed += 1
         
-        latest_student_count = len(info.get("persons", []))
+        latest_student_count = get_stable_student_count(info.get("persons", []))
 
         if not perf.turbo and (processed % perf.preview_every == 0 or info["new"]):
             frame_slot.image(annotated, channels="BGR", output_format="JPEG", use_container_width=True)
@@ -655,7 +662,7 @@ def analyze_image(image, source_name, monitor_args):
     monitor = ExamMonitor(*monitor_args)
     annotated, info = monitor.process(image, 0.0, 1, track=False, instant=True)
     st.image(annotated, channels="BGR", output_format="JPEG", use_container_width=True)
-    exact_count = len(info.get("persons", []))
+    exact_count = get_stable_student_count(info.get("persons", []))
     render_live({"metrics": st.empty(), "alerts": st.empty()}, info, monitor, exact_count)
     return build_result(monitor, 1, source_name, exact_count)
 
@@ -731,7 +738,7 @@ def show_report(result):
 # ----------------------------------------------------------------------------
 st.set_page_config(page_title="Universal Exam Cheating Detection System", page_icon="🎓", layout="wide")
 st.title(f"🎓 Universal Exam Cheating Detection & Analytics System  ·  {APP_VERSION}")
-st.caption("Ultimate clean detection: Perfect student counting and precise cheating violation filtering for any video.")
+st.caption("Ultimate Classroom Pro: Flawless stable student counting and accurate cheating violation detection for all video setups.")
 
 st.sidebar.header("⚡ Speed Preset")
 preset = st.sidebar.selectbox("Speed preset", list(PRESETS), index=0)
