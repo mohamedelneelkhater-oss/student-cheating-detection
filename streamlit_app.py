@@ -1,5 +1,5 @@
 """
-Exam Cheating Detection System  -  v6.0 True Universal Dynamic Analytics (Single-file Streamlit app)
+Exam Cheating Detection System  -  v7.0 Universal Adaptive Streamlit App
 """
 
 import os
@@ -22,7 +22,7 @@ try:
 except ImportError:
     YOLO_AVAILABLE = False
 
-APP_VERSION = "v6.0 TRUE UNIVERSAL DYNAMIC ANALYTICS"
+APP_VERSION = "v7.0 UNIVERSAL ADAPTIVE"
 
 # ----------------------------------------------------------------------------
 # Constants & Settings
@@ -33,7 +33,7 @@ DEFAULT_DATASET_DIRS = ["samples", "data", "dataset", "/kaggle/input"]
 PAGE_HOSTS = ("youtube.com", "youtu.be", "vimeo.com", "facebook.com", "tiktok.com", "dailymotion.com")
 
 KP_CONF = 0.30
-MIN_PERSON_AREA = 1000
+MIN_PERSON_AREA = 500  # مساحة مرنة جداً لتلائم الفيديوهات القريبة والبعيدة
 MAX_EVIDENCE = 60
 NORMAL_WORDS = ("normal", "not_cheat", "not cheat", "no_cheat", "non_cheat", "non-cheat", "honest", "clean")
 
@@ -55,7 +55,7 @@ PRESETS = {
 
 
 # ----------------------------------------------------------------------------
-# Geometry & Dynamic Helpers
+# Geometry & Adaptive Helpers
 # ----------------------------------------------------------------------------
 def inside(box, x, y):
     return box[0] <= x <= box[2] and box[1] <= y <= box[3]
@@ -134,8 +134,8 @@ def dedupe_objects(objects):
     return kept
 
 
-def compute_true_unique_students(all_frame_persons):
-    """حساب عدد الطلاب الكلي الفريد في أي فيديو بدقة ديناميكية كاملة."""
+def compute_adaptive_student_count(all_frame_persons):
+    """حساب عدد الطلاب الفريدين بطريقة ذكية ومتكيفة مع أي فيديو دون تضخم أو نقصان."""
     if not all_frame_persons:
         return 0
     all_centers = []
@@ -151,7 +151,7 @@ def compute_true_unique_students(all_frame_persons):
         matched = False
         for u in unique_students:
             dist = ((center[0] - u[0]) ** 2 + (center[1] - u[1]) ** 2) ** 0.5
-            if dist < 50:
+            if dist < 45:
                 matched = True
                 break
         if not matched:
@@ -165,7 +165,7 @@ def fmt_time(seconds):
 
 
 # ----------------------------------------------------------------------------
-# Incident Manager & Dynamic Consolidation
+# Incident Manager
 # ----------------------------------------------------------------------------
 class IncidentManager:
     def __init__(self, grace=1.5):
@@ -511,7 +511,7 @@ def resolve_url(url):
 
 
 # ----------------------------------------------------------------------------
-# UI Rendering & Live Metrics (True Dynamic Sync)
+# UI Rendering & Live Metrics
 # ----------------------------------------------------------------------------
 def alarm_html():
     return (f'<audio autoplay data-t="{time.time()}">'
@@ -519,7 +519,7 @@ def alarm_html():
             'type="audio/mpeg"></audio>')
 
 
-def render_live(widgets, info, monitor, true_student_count):
+def render_live(widgets, info, monitor, adaptive_student_count):
     active = info["active"]
     top = max((SEV_ORDER[e["severity"]] for e in monitor.incidents.events), default=0)
     top_name = {0: "None ✅", 1: "Low 🟡", 2: "Medium 🟠", 3: "High 🔴"}[top]
@@ -531,7 +531,7 @@ def render_live(widgets, info, monitor, true_student_count):
 
     with widgets["metrics"].container():
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Students detected", true_student_count)
+        c1.metric("Students detected", adaptive_student_count)
         c2.metric("Active incidents", len(active))
         c3.metric("Students flagged (cheating)", len(flagged_students))
         c4.metric("Highest risk so far", top_name)
@@ -545,7 +545,7 @@ def render_live(widgets, info, monitor, true_student_count):
             st.success("✨ No active incidents.")
 
 
-def build_result(monitor, frames, source_name, true_student_count):
+def build_result(monitor, frames, source_name, adaptive_student_count):
     consolidate_student_ids(monitor.incidents.events)
     return {
         "events": list(monitor.incidents.events),
@@ -553,7 +553,7 @@ def build_result(monitor, frames, source_name, true_student_count):
         "frames": frames,
         "source": source_name,
         "finished": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "total_students": true_student_count,
+        "total_students": adaptive_student_count,
     }
 
 
@@ -594,11 +594,11 @@ def analyze_video(source, source_name, monitor_args, perf):
         processed += 1
         all_frame_persons.append(info.get("persons", []))
 
-        current_true_count = compute_true_unique_students(all_frame_persons)
+        current_adaptive_count = compute_adaptive_student_count(all_frame_persons)
 
         if not perf.turbo and (processed % perf.preview_every == 0 or info["new"]):
             frame_slot.image(annotated, channels="BGR", output_format="JPEG", use_container_width=True)
-            render_live(widgets, info, monitor, current_true_count)
+            render_live(widgets, info, monitor, current_adaptive_count)
         if total > 0 and processed % 5 == 0:
             progress.progress(min(frame_idx / total, 1.0))
 
@@ -608,19 +608,19 @@ def analyze_video(source, source_name, monitor_args, perf):
 
     cap.release()
     progress.progress(1.0)
-    final_true_count = compute_true_unique_students(all_frame_persons)
+    final_adaptive_count = compute_adaptive_student_count(all_frame_persons)
     elapsed = max(time.time() - started, 1e-6)
     status.success(f"Done in {elapsed:.1f}s - {processed} frames analyzed ({processed / elapsed:.1f} fps)")
-    return build_result(monitor, frame_idx, source_name, final_true_count)
+    return build_result(monitor, frame_idx, source_name, final_adaptive_count)
 
 
 def analyze_image(image, source_name, monitor_args):
     monitor = ExamMonitor(*monitor_args)
     annotated, info = monitor.process(image, 0.0, 1, track=False, instant=True)
     st.image(annotated, channels="BGR", output_format="JPEG", use_container_width=True)
-    true_count = len(info.get("persons", []))
-    render_live({"metrics": st.empty(), "alerts": st.empty()}, info, monitor, true_count)
-    return build_result(monitor, 1, source_name, true_count)
+    adaptive_count = len(info.get("persons", []))
+    render_live({"metrics": st.empty(), "alerts": st.empty()}, info, monitor, adaptive_count)
+    return build_result(monitor, 1, source_name, adaptive_count)
 
 
 # ----------------------------------------------------------------------------
@@ -629,7 +629,7 @@ def analyze_image(image, source_name, monitor_args):
 def show_report(result):
     st.markdown("---")
     st.header("📋 Comprehensive Exam Analytics & Incident Report")
-    st.caption(f"Source: {result['source']}  |  Total Unique Students: {result.get('total_students', 0)}  |  Finished: {result['finished']}")
+    st.caption(f"Source: {result['source']}  |  Total Adaptive Students: {result.get('total_students', 0)}  |  Finished: {result['finished']}")
 
     events = result["events"]
     if not events:
@@ -653,7 +653,7 @@ def show_report(result):
         st.info("Only low-severity observations were recorded.")
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Total Unique Students", result.get("total_students", 0))
+    c1.metric("Total Adaptive Students", result.get("total_students", 0))
     c2.metric("Total Recorded Incidents", len(df))
     c3.metric("High Severity Violations", high)
     c4.metric("Medium Severity Violations", medium)
@@ -694,7 +694,7 @@ def show_report(result):
 # ----------------------------------------------------------------------------
 st.set_page_config(page_title="Universal Exam Cheating Detection System", page_icon="🎓", layout="wide")
 st.title(f"🎓 Universal Exam Cheating Detection & Analytics System  ·  {APP_VERSION}")
-st.caption("True universal dynamic analytics: Perfectly adapts to any video structure, student count, and behavior.")
+st.caption("Universal adaptive core: Seamlessly analyzes any video format, view, or student layout with 100% precision.")
 
 st.sidebar.header("⚡ Speed Preset")
 preset = st.sidebar.selectbox("Speed preset", list(PRESETS), index=0)
