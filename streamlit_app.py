@@ -1,5 +1,5 @@
 """
-Exam Cheating Detection & Analytics System  -  v25.0 Universal Video Formats & Clean Session Support
+Exam Cheating Detection & Analytics System  -  v26.0 Windows File-Lock & Universal Video Fix
 """
 
 import os
@@ -22,10 +22,10 @@ try:
 except ImportError:
     YOLO_AVAILABLE = False
 
-APP_VERSION = "v25.0 UNIVERSAL"
+APP_VERSION = "v26.0 FIXED"
 
 # ----------------------------------------------------------------------------
-# Constants & Settings (تم توسيع نطاق صيغ الفيديو لتشمل كل الأنواع)
+# Constants & Settings
 # ----------------------------------------------------------------------------
 VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".flv", ".wmv", ".m4v", ".mpeg", ".mpg"}
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
@@ -589,7 +589,7 @@ def build_result(monitor, frames, source_name, final_student_count):
 def analyze_video(source, source_name, monitor_args, perf):
     cap = cv2.VideoCapture(source)
     if not cap.isOpened():
-        st.error("Could not open video source.")
+        st.error(f"Could not open video source: {source_name}. File might be corrupted or codec not supported.")
         return None
 
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
@@ -720,7 +720,7 @@ def show_report(result):
 # ----------------------------------------------------------------------------
 st.set_page_config(page_title="Universal Exam Cheating Detection System", page_icon="🎓", layout="wide")
 st.title(f"Universal Exam Cheating Detection & Analytics System - {APP_VERSION}")
-st.caption("Production-ready pipeline supporting universal video formats, robust confidence tuning, and sequential frame counter.")
+st.caption("Production-ready pipeline with robust file handling and universal video decoding.")
 
 st.sidebar.header("Speed Preset")
 preset = st.sidebar.selectbox("Speed preset", list(PRESETS), index=0)
@@ -798,17 +798,22 @@ def store(result):
 
 if source_option == "Upload from device":
     st.markdown("### Upload exam video from device")
-    # تم فتح جميع الصيغ الشائعة هنا لضمان قبول الـ webm وغيرها
-    uploaded = st.file_uploader("Upload video (MP4, AVI, MOV, MKV, WEBM, FLV, WMV)", type=[e.strip(".") for e in VIDEO_EXTENSIONS])
+    uploaded = st.file_uploader("Upload video (MP4, AVI, MOV, MKV, WEBM, FLV)", type=[e.strip(".") for e in VIDEO_EXTENSIONS])
     if uploaded and st.button("Start analysis", type="primary"):
-        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(uploaded.name).suffix or ".mp4") as tmp:
+        # حل مشكلة قفل الملفات المؤقتة في ويندوز بإغلاق الملف بشكل آمن
+        suffix = Path(uploaded.name).suffix or ".mp4"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             tmp.write(uploaded.read())
             tmp_path = tmp.name
+        
         try:
             store(analyze_video(tmp_path, uploaded.name, monitor_args, perf))
         finally:
             if os.path.exists(tmp_path):
-                os.remove(tmp_path)
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
 
 elif source_option == "Internet link":
     st.markdown("### Analyze video from internet link")
