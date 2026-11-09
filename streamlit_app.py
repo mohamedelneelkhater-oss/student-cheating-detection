@@ -1,5 +1,5 @@
 """
-Exam Cheating Detection & Analytics System  -  v28.0 Multi-Student Accurate Detection & Reporting
+Exam Cheating Detection & Analytics System  
 """
 
 import os
@@ -22,7 +22,7 @@ try:
 except ImportError:
     YOLO_AVAILABLE = False
 
-APP_VERSION = "v28.0 MULTI-DETECT"
+APP_VERSION = "v29.0 STREAMLINED"
 
 # ----------------------------------------------------------------------------
 # Constants & Settings
@@ -503,7 +503,7 @@ def resolve_url(url):
 
 
 # ----------------------------------------------------------------------------
-# UI Live Rendering & Reports
+# UI Live Rendering & Reports (Active Incidents Removed)
 # ----------------------------------------------------------------------------
 def alarm_html():
     t_val = time.time()
@@ -521,12 +521,12 @@ def render_live(widgets, info, monitor, current_student_count):
     
     flagged_students = {e["student"] for e in monitor.incidents.events if e["student"] is not None and SEV_ORDER[e["severity"]] >= 2}
 
+    # تم تخفيض عدد الأعمدة إلى 3 بعد حذف خانة Active incidents نهائياً
     with widgets["metrics"].container():
-        c1, c2, c3, c4 = st.columns(4)
+        c1, c2, c3 = st.columns(3)
         c1.metric("Students detected", current_student_count)
-        c2.metric("Active incidents", len(active))
-        c3.metric("Students flagged (cheating)", len(flagged_students))
-        c4.metric("Highest risk so far", top_name)
+        c2.metric("Students flagged (cheating)", len(flagged_students))
+        c3.metric("Highest risk so far", top_name)
         
     with widgets["alerts"].container():
         if active:
@@ -619,6 +619,7 @@ def show_report(result):
 
     events = result["events"]
     
+    # تحديث أعمدة التقرير النهائي بإزالة Active incidents والتركيز على الأساسيات
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Total Students", result.get("total_students", 0))
     c2.metric("Total Incidents", len(events))
@@ -682,7 +683,7 @@ def show_report(result):
 # ----------------------------------------------------------------------------
 st.set_page_config(page_title="Universal Exam Cheating Detection System", page_icon="🎓", layout="wide")
 st.title(f"Universal Exam Cheating Detection & Analytics System - {APP_VERSION}")
-st.caption("Production-ready pipeline with accurate multi-student independent tracking.")
+st.caption("Streamlined production pipeline with clean interface and independent tracking.")
 
 st.sidebar.header("Speed Preset")
 preset = st.sidebar.selectbox("Speed preset", list(PRESETS), index=0)
@@ -725,7 +726,7 @@ custom_conf = st.sidebar.slider("Trained model confidence", 0.10, 0.90, 0.50, 0.
 yaw_threshold = st.sidebar.slider("Head-turn threshold", 0.10, 0.80, 0.30, 0.05)
 head_seconds = st.sidebar.slider("Head turn min seconds", 0.0, 5.0, 0.5, 0.5)
 object_seconds = st.sidebar.slider("Item visible min seconds", 0.0, 5.0, 0.3, 0.1)
-min_frame_count = st.sidebar.slider("Min consecutive frames for alert", 5, 60, 15, 5) # خفضنا عدد الإطارات لرصد الحركات السريعة بدقة أكبر
+min_frame_count = st.sidebar.slider("Min consecutive frames for alert", 5, 60, 15, 5)
 neighbor_reach = st.sidebar.slider("Neighbor reach", 1.0, 6.0, 2.5, 0.5)
 prohibited = st.sidebar.multiselect("Prohibited items", list(OBJECT_INFO), default=list(OBJECT_INFO))
 check_head = st.sidebar.checkbox("Detect head turn / looking at neighbor", value=True)
