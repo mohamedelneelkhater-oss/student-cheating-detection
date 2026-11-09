@@ -1,5 +1,5 @@
 """
-Exam Cheating Detection & Analytics System  -  v24.0 Final Production-Ready (Multi-Video & Clean Session Support)
+Exam Cheating Detection & Analytics System  -  v25.0 Universal Video Formats & Clean Session Support
 """
 
 import os
@@ -22,12 +22,12 @@ try:
 except ImportError:
     YOLO_AVAILABLE = False
 
-APP_VERSION = "v24.0 PRODUCTION"
+APP_VERSION = "v25.0 UNIVERSAL"
 
 # ----------------------------------------------------------------------------
-# Constants & Settings
+# Constants & Settings (تم توسيع نطاق صيغ الفيديو لتشمل كل الأنواع)
 # ----------------------------------------------------------------------------
-VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".webm"}
+VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".flv", ".wmv", ".m4v", ".mpeg", ".mpg"}
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 DEFAULT_DATASET_DIRS = ["samples", "data", "dataset", "/kaggle/input", "../input"]
 PAGE_HOSTS = ("youtube.com", "youtu.be", "vimeo.com", "facebook.com", "tiktok.com", "dailymotion.com")
@@ -537,7 +537,7 @@ def resolve_url(url):
 
 
 # ----------------------------------------------------------------------------
-# UI Live Rendering & Reports (Updated to support clean sessions)
+# UI Live Rendering & Reports
 # ----------------------------------------------------------------------------
 def alarm_html():
     t_val = time.time()
@@ -657,7 +657,6 @@ def show_report(result):
 
     events = result["events"]
     
-    # عرض الـ Metrics دائماً حتى لو كانت الإحداثيات أو المخالفات فارغة (فيديو نظيف)
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Total Students", result.get("total_students", 0))
     c2.metric("Total Incidents", len(events))
@@ -721,7 +720,7 @@ def show_report(result):
 # ----------------------------------------------------------------------------
 st.set_page_config(page_title="Universal Exam Cheating Detection System", page_icon="🎓", layout="wide")
 st.title(f"Universal Exam Cheating Detection & Analytics System - {APP_VERSION}")
-st.caption("Production-ready pipeline supporting clean videos, robust confidence tuning, and sequential frame counter.")
+st.caption("Production-ready pipeline supporting universal video formats, robust confidence tuning, and sequential frame counter.")
 
 st.sidebar.header("Speed Preset")
 preset = st.sidebar.selectbox("Speed preset", list(PRESETS), index=0)
@@ -799,7 +798,8 @@ def store(result):
 
 if source_option == "Upload from device":
     st.markdown("### Upload exam video from device")
-    uploaded = st.file_uploader("Upload video (MP4, AVI, MOV, MKV, WEBM)", type=[e.strip(".") for e in VIDEO_EXTENSIONS])
+    # تم فتح جميع الصيغ الشائعة هنا لضمان قبول الـ webm وغيرها
+    uploaded = st.file_uploader("Upload video (MP4, AVI, MOV, MKV, WEBM, FLV, WMV)", type=[e.strip(".") for e in VIDEO_EXTENSIONS])
     if uploaded and st.button("Start analysis", type="primary"):
         with tempfile.NamedTemporaryFile(delete=False, suffix=Path(uploaded.name).suffix or ".mp4") as tmp:
             tmp.write(uploaded.read())
