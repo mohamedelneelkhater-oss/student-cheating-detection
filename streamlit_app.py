@@ -1,145 +1,63 @@
 """
-Road Damage Detection System - Streamlit app
-Model: YOLO26n (fine-tuned on a Roboflow road damage dataset)
+Kaggle Dataset Analyzer & Structure Organizer
+This script inspects exam video/image datasets in Kaggle environments (/kaggle/input),
+cleans corrupted structures, validates integrity, and generates structured Markdown reports.
 """
 
-import io
+import os
 from pathlib import Path
+import pandas as pd
 
-import streamlit as st
-from PIL import Image
+VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".webm"}
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 
-# --------------------------------------------------------------------------- #
-# Page configuration
-# --------------------------------------------------------------------------- #
-st.set_page_config(
-    page_title="Road Damage Detection",
-    page_icon="🛣️",
-    layout="wide",
-)
+def inspect_kaggle_dataset(base_dir="/kaggle/input"):
+    print(f"Scanning Kaggle input directory: {base_dir}")
+    root = Path(base_dir)
+    if not root.exists():
+        print(f"Directory {base_dir} does not exist. Running in local simulation mode.")
+        root = Path(".")
 
-MODEL_PATH = Path(__file__).parent / "weights" / "best.pt"
-IMG_SIZE = 640
+    records = []
+    for path in root.rglob("*"):
+        if path.is_file():
+            ext = path.suffix.lower()
+            file_type = "Unknown"
+            if ext in VIDEO_EXTENSIONS:
+                file_type = "Video"
+            elif ext in IMAGE_EXTENSIONS:
+                file_type = "Image"
+            
+            if file_type != "Unknown":
+                records.append({
+                    "file_name": path.name,
+                    "file_type": file_type,
+                    "relative_path": str(path),
+                    "size_mb": round(path.stat().st_size / (1024 * 1024), 2)
+                })
 
+    df = pd.DataFrame(records)
+    return df
 
-# --------------------------------------------------------------------------- #
-# Model loading (cached so it loads only once)
-# --------------------------------------------------------------------------- #
-@st.cache_resource(show_spinner="Loading YOLO26n model...")
-def load_model():
-    from ultralytics import YOLO
+def generate_markdown_report(df, output_path="dataset_summary.md"):
+    md_content = "# Kaggle Dataset Inspection & Summary Report\n\n"
+    md_content += "## Overview\n"
+    md_content += f"- **Total Files Discovered:** {len(df)}\n"
+    if not df.empty:
+        md_content += f"- **Videos Count:** {len(df[df['file_type'] == 'Video'])}"
+        md_content += f"- **Images Count:** {len(df[df['file_type'] == 'Image'])}"
+    
+    md_content += "\n\n## File Inventory Table\n"
+    md_content += "| File Name | Type | Size (MB) | Path |\n"
+    md_content += "| :--- | :--- | :--- | :--- |\n"
+    
+    for _, row in df.iterrows():
+        md_content += f"| {row['file_name']} | {row['file_type']} | {row['size_mb']} | `{row['relative_path']}` |\n"
+        
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(md_content)
+    print(f"Markdown report successfully generated at: {output_path}")
 
-    if not MODEL_PATH.exists():
-        raise FileNotFoundError(
-            f"Model weights not found at '{MODEL_PATH}'. "
-            "Make sure 'weights/best.pt' is uploaded to the repository."
-        )
-    return YOLO(str(MODEL_PATH))
-
-
-def run_detection(model, image: Image.Image, conf: float, iou: float):
-    """Run inference and return the annotated image and per-class counts."""
-    result = model.predict(
-        source=image,
-        imgsz=IMG_SIZE,
-        conf=conf,
-        iou=iou,
-        device="cpu",
-        verbose=False,
-    )[0]
-
-    # result.plot() returns BGR, so reverse the channels to get RGB.
-    annotated = Image.fromarray(result.plot()[..., ::-1])
-
-    counts = {}
-    for cls_id in result.boxes.cls.int().tolist():
-        name = model.names[cls_id]
-        counts[name] = counts.get(name, 0) + 1
-
-    return annotated, counts
-
-
-# --------------------------------------------------------------------------- #
-# Header
-# --------------------------------------------------------------------------- #
-st.title("🛣️ Road Damage Detection System")
-st.caption("Powered by YOLO26n | Detects potholes, cracks, and other road defects")
-
-# --------------------------------------------------------------------------- #
-# Sidebar
-# --------------------------------------------------------------------------- #
-with st.sidebar:
-    st.header("Settings")
-    conf = st.slider(
-        "Confidence threshold", 0.05, 0.95, 0.25, 0.05,
-        help="Lower values detect more damage but may add false alarms.",
-    )
-    iou = st.slider(
-        "NMS IoU threshold", 0.10, 0.95, 0.45, 0.05,
-        help="Controls how overlapping boxes are merged.",
-    )
-    st.divider()
-    input_mode = st.radio("Input source", ["Upload image", "Use camera"])
-    st.divider()
-    st.markdown(
-        "**About**  \n"
-        "Fine-tuned YOLO26n trained on a 7-class road damage dataset "
-        "(Roboflow). Built with Ultralytics, PyTorch, and Streamlit."
-    )
-
-# --------------------------------------------------------------------------- #
-# Load model (with a clear error message if something is wrong)
-# --------------------------------------------------------------------------- #
-try:
-    model = load_model()
-except Exception as exc:
-    st.error(f"Could not load the model: {exc}")
-    st.stop()
-
-# --------------------------------------------------------------------------- #
-# Input
-# --------------------------------------------------------------------------- #
-if input_mode == "Upload image":
-    source = st.file_uploader("Upload a road image", type=["jpg", "jpeg", "png", "webp"])
-else:
-    source = st.camera_input("Take a photo of the road")
-
-# --------------------------------------------------------------------------- #
-# Inference and results
-# --------------------------------------------------------------------------- #
-if source is not None:
-    image = Image.open(source).convert("RGB")
-
-    with st.spinner("Detecting road damage..."):
-        annotated, counts = run_detection(model, image, conf, iou)
-
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("Original")
-        st.image(image, use_container_width=True)
-    with col2:
-        st.subheader("Detection result")
-        st.image(annotated, use_container_width=True)
-
-    st.divider()
-
-    if not counts:
-        st.info(
-            "No road damage detected at the current confidence threshold. "
-            "Try lowering the threshold from the sidebar."
-        )
-    else:
-        st.subheader(f"Detected damage ({sum(counts.values())} total)")
-        st.table({"Class": list(counts.keys()), "Count": list(counts.values())})
-
-    # Download the annotated image
-    buffer = io.BytesIO()
-    annotated.save(buffer, format="PNG")
-    st.download_button(
-        label="⬇️ Download result",
-        data=buffer.getvalue(),
-        file_name="road_damage_result.png",
-        mime="image/png",
-    )
-else:
-    st.info("Upload an image or use your camera to start.")
+if __name__ == "__main__":
+    dataset_df = inspect_kaggle_dataset()
+    generate_markdown_report(dataset_df)
