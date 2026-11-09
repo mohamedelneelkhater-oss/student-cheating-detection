@@ -1,5 +1,5 @@
 """
-Exam Cheating Detection & Analytics System  -  v26.0 Windows File-Lock & Universal Video Fix
+Exam Cheating Detection & Analytics System  -  v27.0 Multi-Student Independent Tracking & Production-Ready
 """
 
 import os
@@ -22,7 +22,7 @@ try:
 except ImportError:
     YOLO_AVAILABLE = False
 
-APP_VERSION = "v26.0 FIXED"
+APP_VERSION = "v27.0 MULTI-STUDENT PRO"
 
 # ----------------------------------------------------------------------------
 # Constants & Settings
@@ -181,7 +181,7 @@ def fmt_time(seconds):
 
 
 # ----------------------------------------------------------------------------
-# Incident Manager with Frame Counter Integration (>= 30 frames constraint)
+# Incident Manager with Independent Student Tracking
 # ----------------------------------------------------------------------------
 class IncidentManager:
     def __init__(self, grace=1.5, min_frame_count=30):
@@ -246,40 +246,6 @@ class IncidentManager:
         if ok:
             ev["evidence"] = len(self.evidence)
             self.evidence.append(buf.tobytes())
-
-
-def consolidate_student_ids(events):
-    if not events:
-        return events
-    student_boxes = {}
-    for ev in events:
-        sid = ev.get("student")
-        if sid is not None:
-            student_boxes.setdefault(sid, []).append(ev.get("box", (0, 0, 0, 0)))
-
-    student_centers = {}
-    for sid, boxes in student_boxes.items():
-        if boxes:
-            arr = np.array(boxes)
-            cx = np.mean((arr[:, 0] + arr[:, 2]) / 2)
-            cy = np.mean((arr[:, 1] + arr[:, 3]) / 2)
-            student_centers[sid] = (cx, cy)
-
-    sids = sorted(student_centers.keys())
-    mapping = {s: s for s in sids}
-    for i in range(len(sids)):
-        for j in range(i + 1, len(sids)):
-            s1, s2 = sids[i], sids[j]
-            c1, c2 = student_centers[s1], student_centers[s2]
-            dist = ((c1[0] - c2[0]) ** 2 + (c1[1] - c2[1]) ** 2) ** 0.5
-            if dist < 90:
-                mapping[s2] = mapping[s1]
-
-    for ev in events:
-        sid = ev.get("student")
-        if sid in mapping:
-            ev["student"] = mapping[sid]
-    return events
 
 
 # ----------------------------------------------------------------------------
@@ -537,7 +503,7 @@ def resolve_url(url):
 
 
 # ----------------------------------------------------------------------------
-# UI Live Rendering & Reports
+# UI Live Rendering & Reports (Independent Student Counting)
 # ----------------------------------------------------------------------------
 def alarm_html():
     t_val = time.time()
@@ -553,10 +519,8 @@ def render_live(widgets, info, monitor, current_student_count):
     top = max((SEV_ORDER[e["severity"]] for e in monitor.incidents.events), default=0)
     top_name = {0: "None", 1: "Low", 2: "Medium", 3: "High"}[top]
     
-    temp_events = list(monitor.incidents.events)
-    consolidate_student_ids(temp_events)
-    
-    flagged_students = {e["student"] for e in temp_events if e["student"] is not None and SEV_ORDER[e["severity"]] >= 2}
+    # حساب الطلاب المستقلين المخالفين بدون دمج المعرفات
+    flagged_students = {e["student"] for e in monitor.incidents.events if e["student"] is not None and SEV_ORDER[e["severity"]] >= 2}
 
     with widgets["metrics"].container():
         c1, c2, c3, c4 = st.columns(4)
@@ -575,7 +539,6 @@ def render_live(widgets, info, monitor, current_student_count):
 
 
 def build_result(monitor, frames, source_name, final_student_count):
-    consolidate_student_ids(monitor.incidents.events)
     return {
         "events": list(monitor.incidents.events),
         "evidence": list(monitor.incidents.evidence),
@@ -720,7 +683,7 @@ def show_report(result):
 # ----------------------------------------------------------------------------
 st.set_page_config(page_title="Universal Exam Cheating Detection System", page_icon="🎓", layout="wide")
 st.title(f"Universal Exam Cheating Detection & Analytics System - {APP_VERSION}")
-st.caption("Production-ready pipeline with robust file handling and universal video decoding.")
+st.caption("Production-ready pipeline with independent multi-student tracking and robust file handling.")
 
 st.sidebar.header("Speed Preset")
 preset = st.sidebar.selectbox("Speed preset", list(PRESETS), index=0)
@@ -800,7 +763,6 @@ if source_option == "Upload from device":
     st.markdown("### Upload exam video from device")
     uploaded = st.file_uploader("Upload video (MP4, AVI, MOV, MKV, WEBM, FLV)", type=[e.strip(".") for e in VIDEO_EXTENSIONS])
     if uploaded and st.button("Start analysis", type="primary"):
-        # حل مشكلة قفل الملفات المؤقتة في ويندوز بإغلاق الملف بشكل آمن
         suffix = Path(uploaded.name).suffix or ".mp4"
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             tmp.write(uploaded.read())
