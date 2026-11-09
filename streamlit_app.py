@@ -1,5 +1,5 @@
 """
-Exam Cheating Detection & Analytics System  -  v27.0 Multi-Student Independent Tracking & Production-Ready
+Exam Cheating Detection & Analytics System  -  v28.0 Multi-Student Accurate Detection & Reporting
 """
 
 import os
@@ -22,7 +22,7 @@ try:
 except ImportError:
     YOLO_AVAILABLE = False
 
-APP_VERSION = "v27.0 MULTI-STUDENT PRO"
+APP_VERSION = "v28.0 MULTI-DETECT"
 
 # ----------------------------------------------------------------------------
 # Constants & Settings
@@ -181,7 +181,7 @@ def fmt_time(seconds):
 
 
 # ----------------------------------------------------------------------------
-# Incident Manager with Independent Student Tracking
+# Incident Manager
 # ----------------------------------------------------------------------------
 class IncidentManager:
     def __init__(self, grace=1.5, min_frame_count=30):
@@ -503,7 +503,7 @@ def resolve_url(url):
 
 
 # ----------------------------------------------------------------------------
-# UI Live Rendering & Reports (Independent Student Counting)
+# UI Live Rendering & Reports
 # ----------------------------------------------------------------------------
 def alarm_html():
     t_val = time.time()
@@ -519,7 +519,6 @@ def render_live(widgets, info, monitor, current_student_count):
     top = max((SEV_ORDER[e["severity"]] for e in monitor.incidents.events), default=0)
     top_name = {0: "None", 1: "Low", 2: "Medium", 3: "High"}[top]
     
-    # حساب الطلاب المستقلين المخالفين بدون دمج المعرفات
     flagged_students = {e["student"] for e in monitor.incidents.events if e["student"] is not None and SEV_ORDER[e["severity"]] >= 2}
 
     with widgets["metrics"].container():
@@ -683,7 +682,7 @@ def show_report(result):
 # ----------------------------------------------------------------------------
 st.set_page_config(page_title="Universal Exam Cheating Detection System", page_icon="🎓", layout="wide")
 st.title(f"Universal Exam Cheating Detection & Analytics System - {APP_VERSION}")
-st.caption("Production-ready pipeline with independent multi-student tracking and robust file handling.")
+st.caption("Production-ready pipeline with accurate multi-student independent tracking.")
 
 st.sidebar.header("Speed Preset")
 preset = st.sidebar.selectbox("Speed preset", list(PRESETS), index=0)
@@ -724,9 +723,9 @@ object_conf = st.sidebar.slider("Generic item confidence (conf)", 0.10, 0.90, 0.
 person_conf = st.sidebar.slider("Student confidence", 0.10, 0.90, 0.35, 0.05)
 custom_conf = st.sidebar.slider("Trained model confidence", 0.10, 0.90, 0.50, 0.05)
 yaw_threshold = st.sidebar.slider("Head-turn threshold", 0.10, 0.80, 0.30, 0.05)
-head_seconds = st.sidebar.slider("Head turn min seconds", 0.0, 5.0, 1.0, 0.5)
-object_seconds = st.sidebar.slider("Item visible min seconds", 0.0, 5.0, 0.5, 0.5)
-min_frame_count = st.sidebar.slider("Min consecutive frames for alert", 5, 60, 30, 5)
+head_seconds = st.sidebar.slider("Head turn min seconds", 0.0, 5.0, 0.5, 0.5)
+object_seconds = st.sidebar.slider("Item visible min seconds", 0.0, 5.0, 0.3, 0.1)
+min_frame_count = st.sidebar.slider("Min consecutive frames for alert", 5, 60, 15, 5) # خفضنا عدد الإطارات لرصد الحركات السريعة بدقة أكبر
 neighbor_reach = st.sidebar.slider("Neighbor reach", 1.0, 6.0, 2.5, 0.5)
 prohibited = st.sidebar.multiselect("Prohibited items", list(OBJECT_INFO), default=list(OBJECT_INFO))
 check_head = st.sidebar.checkbox("Detect head turn / looking at neighbor", value=True)
