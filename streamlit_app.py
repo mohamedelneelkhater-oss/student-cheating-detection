@@ -29,7 +29,9 @@ from PIL import Image
 # --------------------------------------------------------------------------- #
 st.set_page_config(page_title="Exam Cheating Detection", page_icon="🎓", layout="wide")
 
-MODEL_PATH = Path(__file__).parent / "weights" / "best.pt"
+BASE_DIR = Path(__file__).parent
+FALLBACK_WEIGHTS = "yolo11n.pt"  # generic model, downloaded automatically when no trained weights exist
+FALLBACK_CHEAT = ("cell phone", "book", "laptop", "remote")
 VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".webm"}
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 DEFAULT_DATASET_DIRS = ["samples", "data", "dataset", "/kaggle/input"]
@@ -52,15 +54,29 @@ PRESETS = {
 # Model loading (cached so it loads only once)
 # --------------------------------------------------------------------------- #
 @st.cache_resource(show_spinner="Loading YOLO model...")
-def load_model():
+def load_model(weights_path):
     from ultralytics import YOLO
 
-    if not MODEL_PATH.exists():
-        raise FileNotFoundError(
-            f"Model weights not found at '{MODEL_PATH}'. "
-            "Make sure 'weights/best.pt' is uploaded to the repository."
-        )
-    return YOLO(str(MODEL_PATH))
+    return YOLO(weights_path)
+
+
+def find_weights():
+    """Look for trained weights in the repository; return a path or None."""
+    for candidate in (BASE_DIR / "weights" / "best.pt", BASE_DIR / "best.pt",
+                      Path("weights/best.pt"), Path("best.pt")):
+        if candidate.exists():
+            return str(candidate)
+    for candidate in sorted((BASE_DIR / "weights").glob("*.pt")):
+        return str(candidate)
+    return None
+
+
+def save_uploaded_weights(uploaded):
+    path = os.path.join(tempfile.gettempdir(), f"uploaded_{uploaded.size}_{uploaded.name}")
+    if not os.path.exists(path):
+        with open(path, "wb") as fh:
+            fh.write(uploaded.getvalue())
+    return path
 
 
 @st.cache_data(show_spinner=False)
@@ -81,9 +97,11 @@ def find_dataset_files(search_dirs):
 # --------------------------------------------------------------------------- #
 # Detection, drawing and alert logic
 # --------------------------------------------------------------------------- #
-def detect(model, frame, conf, iou, imgsz, track=False, persist=False):
-    """Run the model on a BGR frame and return a list of detections."""
+def detect(model, frame, conf, iou, imgsz, track=False, persist=False, allowed=None):
+    """Run the model on a BGR frame and return a list of detections (optionally only some classes)."""
     kw = dict(imgsz=imgsz, conf=conf, iou=iou, verbose=False)
+    if allowed:
+        kw["classes"] = [i for i, n in model.names.items() if n in allowed]
     if track:
         res = model.track(frame, persist=persist, tracker="bytetrack.yaml", **kw)[0]
     else:
@@ -265,7 +283,8 @@ def analyze_video(model, source, source_name, cfg, cheat_classes):
                 break
             idx, frame = item
             t = idx / fps
-            dets = detect(model, frame, cfg["conf"], cfg["iou"], cfg["imgsz"], track=True, persist=not first)
+            dets = detect(model, frame, cfg["conf"], cfg["iou"], cfg["imgsz"], track=True, persist=not first,
+                          allowed=cfg["allowed"])
             first = False
             new_alerts = tracker.update(t, [d for d in dets if d["name"] in cheat_classes])
             processed += 1
@@ -353,7 +372,7 @@ def show_report(result):
 
 def show_image_result(model, image, cfg, cheat_classes):
     frame = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-    dets = detect(model, frame, cfg["conf"], cfg["iou"], cfg["imgsz"])
+    dets = detect(model, frame, cfg["conf"], cfg["iou"], cfg["imgsz"], allowed=cfg["allowed"])
     annotated = Image.fromarray(cv2.cvtColor(draw_detections(frame, dets, cheat_classes), cv2.COLOR_BGR2RGB))
 
     col1, col2 = st.columns(2)
@@ -393,21 +412,35 @@ st.title("🎓 Exam Cheating Detection System")
 st.caption("Powered by YOLO | Red boxes = cheating, green boxes = normal behavior")
 
 # --------------------------------------------------------------------------- #
-# Load model (with a clear error message if something is wrong)
-# --------------------------------------------------------------------------- #
-try:
-    model = load_model()
-except Exception as exc:
-    st.error(f"Could not load the model: {exc}")
-    st.stop()
-
-all_classes = list(model.names.values())
-default_cheat = [n for n in all_classes if not any(w in n.lower() for w in NORMAL_WORDS)]
-
-# --------------------------------------------------------------------------- #
 # Sidebar
 # --------------------------------------------------------------------------- #
 with st.sidebar:
+    st.header("Model")
+    uploaded_weights = st.file_uploader("Upload your trained weights (best.pt)", type=["pt"],
+                                        help="Optional: used instead of weights/best.pt from the repository.")
+    if uploaded_weights is not None:
+        weights_path, using_fallback = save_uploaded_weights(uploaded_weights), False
+    else:
+        weights_path = find_weights()
+        using_fallback = weights_path is None
+        if using_fallback:
+            weights_path = FALLBACK_WEIGHTS
+    try:
+        model = load_model(weights_path)
+    except Exception as exc:
+        st.error(f"Could not load the model: {exc}")
+        st.stop()
+
+    all_classes = list(model.names.values())
+    if using_fallback:
+        st.warning("No trained weights found (weights/best.pt). Using the generic YOLO11n model: it only detects "
+                   "phones, books and laptops. Upload your best.pt above for full cheating detection.")
+        default_cheat = [n for n in FALLBACK_CHEAT if n in all_classes]
+    else:
+        st.success(f"Trained model: {Path(weights_path).name}")
+        default_cheat = [n for n in all_classes if not any(w in n.lower() for w in NORMAL_WORDS)]
+
+    st.divider()
     st.header("Settings")
     preset = st.selectbox("Speed preset", list(PRESETS), index=0)
     PS = PRESETS[preset]
@@ -438,7 +471,10 @@ with st.sidebar:
     st.markdown("**About**  \nFine-tuned YOLO model trained on a Roboflow exam cheating dataset. "
                 "Built with Ultralytics, PyTorch, and Streamlit.")
 
-cfg = dict(conf=conf, iou=iou, imgsz=imgsz, frame_skip=frame_skip, max_width=max_width, turbo=turbo,
+# With the generic model only look for people and the selected items (faster, no clutter)
+allowed = ({"person"} | cheat_classes) if using_fallback else None
+
+cfg = dict(allowed=allowed, conf=conf, iou=iou, imgsz=imgsz, frame_skip=frame_skip, max_width=max_width, turbo=turbo,
            preview_every=preview_every, max_seconds=max_seconds, min_frames=min_frames,
            cooldown=cooldown, sound=sound_on)
 
@@ -447,6 +483,11 @@ def store(result):
     if result is not None:
         st.session_state["report"] = result
 
+
+if using_fallback:
+    st.warning("Running the generic YOLO11n model (no trained best.pt found). Phones, books and laptops are "
+               "marked in red. Upload your best.pt from the sidebar, or add it to the repository at "
+               "weights/best.pt, for real cheating detection.")
 
 # --------------------------------------------------------------------------- #
 # Input, inference and results
